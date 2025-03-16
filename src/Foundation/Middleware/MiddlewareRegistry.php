@@ -10,6 +10,7 @@
 namespace Ody\Foundation\Middleware;
 
 use Ody\Container\Container;
+use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Middleware\Adapters\CallableMiddlewareAdapter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -102,7 +103,6 @@ class MiddlewareRegistry
     public function add(string $name, $middleware): self
     {
         $this->namedMiddleware[$name] = $middleware;
-
         return $this;
     }
 
@@ -295,6 +295,7 @@ class MiddlewareRegistry
      * @param ServerRequestInterface $request
      * @param callable $finalHandler
      * @return ResponseInterface
+     * @throws \Throwable
      */
     public function process(ServerRequestInterface $request, callable $finalHandler): ResponseInterface
     {
@@ -388,6 +389,7 @@ class MiddlewareRegistry
      *
      * @param mixed $middleware
      * @return MiddlewareInterface|null
+     * @throws \Throwable
      */
     public function resolveMiddleware($middleware): ?MiddlewareInterface
     {
@@ -524,6 +526,7 @@ class MiddlewareRegistry
      *
      * @param mixed $middleware
      * @return MiddlewareInterface|null
+     * @throws BindingResolutionException
      */
     private function resolveClassMiddleware($middleware): ?MiddlewareInterface
     {
@@ -551,6 +554,7 @@ class MiddlewareRegistry
      *
      * @param string $class
      * @return MiddlewareInterface|null
+     * @throws \ReflectionException
      */
     private function instantiateUsingReflection(string $class): ?MiddlewareInterface
     {
@@ -595,11 +599,28 @@ class MiddlewareRegistry
     }
 
     /**
+     * Create parametrized middleware
+     *
+     * @param MiddlewareInterface $middleware
+     * @param array $parameters
+     * @return MiddlewareInterface
+     */
+    private function createParametrizedMiddleware(MiddlewareInterface $middleware, array $parameters): MiddlewareInterface
+    {
+        if (empty($parameters)) {
+            return $middleware;
+        }
+
+        return new ParameterizedMiddlewareDecorator($middleware, $parameters);
+    }
+
+    /**
      * Resolve a constructor parameter
      *
      * @param \ReflectionParameter $param
      * @param string $className For logging purposes
      * @return mixed|null
+     * @throws BindingResolutionException
      */
     private function resolveConstructorParameter(\ReflectionParameter $param, string $className)
     {

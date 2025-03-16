@@ -2,14 +2,10 @@
 namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\AuthMiddleware;
-use Ody\Foundation\Middleware\CorsMiddleware;
-use Ody\Foundation\Middleware\JsonBodyParserMiddleware;
-use Ody\Foundation\Middleware\LoggingMiddleware;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
-use Ody\Foundation\Middleware\RoleMiddleware;
-use Ody\Foundation\Middleware\ThrottleMiddleware;
+use Ody\Foundation\Middleware\ParameterizedMiddlewareDecorator;
 use Ody\Support\Config;
+use Psr\Http\Server\MiddlewareInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -24,23 +20,7 @@ class MiddlewareServiceProvider extends ServiceProvider
      */
     protected array $singletons = [
         MiddlewareRegistry::class => null,
-        AuthMiddleware::class => null,
-        RoleMiddleware::class => null,
-        ThrottleMiddleware::class => null
-    ];
-
-    /**
-     * Tags for organizing services
-     *
-     * @var array
-     */
-    protected array $tags = [
-        'middleware' => [
-            MiddlewareRegistry::class,
-            AuthMiddleware::class,
-            RoleMiddleware::class,
-            ThrottleMiddleware::class
-        ]
+        ParameterizedMiddlewareDecorator::class => null,
     ];
 
     /**
@@ -54,21 +34,6 @@ class MiddlewareServiceProvider extends ServiceProvider
         $this->singleton(MiddlewareRegistry::class, function ($container) {
             return new MiddlewareRegistry($container, $container->make(LoggerInterface::class));
         });
-
-        // Register middleware classes
-        $this->singleton(AuthMiddleware::class, function ($container) {
-            $logger = $container->make(LoggerInterface::class);
-            return new AuthMiddleware('web', $logger);
-        });
-
-        $this->singleton(RoleMiddleware::class, function ($container) {
-            $logger = $container->make(LoggerInterface::class);
-            return new RoleMiddleware('user', $logger);
-        });
-
-        $this->singleton(ThrottleMiddleware::class, function () {
-            return new ThrottleMiddleware(60, 1);
-        });
     }
 
     /**
@@ -80,12 +45,13 @@ class MiddlewareServiceProvider extends ServiceProvider
     {
         $registry = $this->make(MiddlewareRegistry::class);
         $config = $this->make(Config::class);
+        $logger = $this->make(LoggerInterface::class);
 
         // Register named middleware
-        $this->registerNamedMiddleware($registry, $this->container);
+        $this->registerNamedMiddleware($registry, $config, $logger);
 
         // Register global middleware from configuration
-        $this->registerGlobalMiddleware($registry, $this->container, $config);
+        $this->registerGlobalMiddleware($registry, $config, $logger);
 
         // Register middleware groups
         $this->registerMiddlewareGroups($registry, $config);
@@ -95,44 +61,48 @@ class MiddlewareServiceProvider extends ServiceProvider
      * Register named middleware for use in routes
      *
      * @param MiddlewareRegistry $registry
-     * @param Container $container
+     * @param Config $config
+     * @param LoggerInterface $logger
      * @return void
      */
-    protected function registerNamedMiddleware(MiddlewareRegistry $registry, Container $container): void
-    {
-        // Get middleware from container (they were registered as singletons)
-        $registry->add('auth', $container->make(AuthMiddleware::class));
-//        $registry->add('auth:api', new Authenticate('api', $container->make(LoggerInterface::class)));
-        $registry->add('auth:jwt', new AuthMiddleware('jwt', $container->make(LoggerInterface::class)));
-
-        $registry->add('role', $container->make(RoleMiddleware::class));
-        $registry->add('role:admin', new RoleMiddleware('admin', $container->make(LoggerInterface::class)));
-        $registry->add('role:user', new RoleMiddleware('user', $container->make(LoggerInterface::class)));
-
-        $registry->add('throttle', $container->make(ThrottleMiddleware::class));
-        $registry->add('throttle:60,1', new ThrottleMiddleware(60, 1));
-        $registry->add('throttle:1000,60', new ThrottleMiddleware(1000, 60));
-
-        $registry->add('cors', $container->make(CorsMiddleware::class));
-        $registry->add('json', $container->make(JsonBodyParserMiddleware::class));
-        $registry->add('log', $container->make(LoggingMiddleware::class));
-
+    protected function registerNamedMiddleware(
+        MiddlewareRegistry $registry,
+        Config $config,
+        LoggerInterface $logger
+    ): void {
         // Register middleware defined in config
-        $namedMiddleware = config('app.middleware.named', []);
+        $namedMiddleware = $config->get('app.middleware.named', []);
 
-        foreach ($namedMiddleware as $name => $class) {
-            // Skip if already registered
-            if ($registry->has($name)) {
-                continue;
-            }
+        foreach ($namedMiddleware as $name => $middlewareDefinition) {
+            try {
+                // For simple class name middleware
+                if (is_string($middlewareDefinition)) {
+                    $registry->add($name, $middlewareDefinition);
+                    $logger->debug("Registered named middleware: {$name} → {$middlewareDefinition}");
+                }
+                // For array configuration with class and parameters
+                else if (is_array($middlewareDefinition) && isset($middlewareDefinition['class'])) {
+                    $class = $middlewareDefinition['class'];
+                    $parameters = $middlewareDefinition['parameters'] ?? [];
 
-            // If class exists and container has it, register the middleware
-            if (class_exists($class) && $container->has($class)) {
-                $registry->add($name, $container->make($class));
-            }
-            // Otherwise register the class name for later resolution
-            else {
-                $registry->add($name, $class);
+                    // Register with both class and parameters
+                    $registry->add($name, [
+                        'class' => $class,
+                        'parameters' => $parameters
+                    ]);
+
+                    $logger->debug("Registered named middleware with parameters: {$name}");
+                }
+                else {
+                    $logger->warning("Invalid middleware definition for '{$name}'", [
+                        'definition' => $middlewareDefinition
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                $logger->error("Failed to register middleware '{$name}'", [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
             }
         }
     }
@@ -141,24 +111,69 @@ class MiddlewareServiceProvider extends ServiceProvider
      * Register global middleware from configuration
      *
      * @param MiddlewareRegistry $registry
-     * @param Container $container
      * @param Config $config
+     * @param LoggerInterface $logger
      * @return void
      */
-    protected function registerGlobalMiddleware(MiddlewareRegistry $registry, Container $container, Config $config): void
-    {
+    protected function registerGlobalMiddleware(
+        MiddlewareRegistry $registry,
+        Config $config,
+        LoggerInterface $logger
+    ): void {
         // Get global middleware from configuration
         $globalMiddleware = $config->get('app.middleware.global', []);
 
         // Register each middleware class
-        foreach ($globalMiddleware as $middlewareClass) {
-            // If container has the middleware, add it directly
-            if ($container->has($middlewareClass)) {
-                $registry->addGlobal($container->make($middlewareClass));
-            }
-            // Otherwise add the class name for later resolution
-            else {
-                $registry->addGlobal($middlewareClass);
+        foreach ($globalMiddleware as $middlewareDefinition) {
+            try {
+                // For simple class name middleware
+                if (is_string($middlewareDefinition)) {
+                    $registry->addGlobal($middlewareDefinition);
+                    $logger->debug("Registered global middleware: {$middlewareDefinition}");
+                }
+                // For array configuration with class and parameters
+                else if (is_array($middlewareDefinition) && isset($middlewareDefinition['class'])) {
+                    $class = $middlewareDefinition['class'];
+                    $parameters = $middlewareDefinition['parameters'] ?? [];
+
+                    // Create a factory to instantiate with parameters
+                    $factory = function() use ($class, $parameters, $logger) {
+                        try {
+                            // Instantiate the middleware
+                            if ($this->container->has($class)) {
+                                $middleware = $this->container->make($class);
+                            } else {
+                                $middleware = new $class();
+                            }
+
+                            // If there are parameters and it's a middleware, wrap it
+                            if (!empty($parameters) && $middleware instanceof MiddlewareInterface) {
+                                return new ParameterizedMiddlewareDecorator($middleware, $parameters);
+                            }
+
+                            return $middleware;
+                        } catch (\Throwable $e) {
+                            $logger->error("Failed to create middleware instance for {$class}", [
+                                'error' => $e->getMessage(),
+                                'parameters' => $parameters
+                            ]);
+                            throw $e;
+                        }
+                    };
+
+                    $registry->addGlobal($factory);
+                    $logger->debug("Registered global middleware with parameters: {$class}");
+                }
+                else {
+                    $logger->warning("Invalid global middleware definition", [
+                        'definition' => $middlewareDefinition
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                $logger->error("Failed to register global middleware", [
+                    'error' => $e->getMessage(),
+                    'definition' => $middlewareDefinition
+                ]);
             }
         }
     }

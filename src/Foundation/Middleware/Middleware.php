@@ -184,41 +184,248 @@ class Middleware
     }
 
     /**
-     * Resolve middleware from name or callable
+     * Resolve a middleware to a PSR-15 middleware instance
      *
-     * @param string|callable|MiddlewareInterface $middleware
-     * @return MiddlewareInterface
-     * @throws \InvalidArgumentException
+     * @param mixed $middleware
+     * @return MiddlewareInterface|null
      */
-    private function resolveMiddleware($middleware): MiddlewareInterface
+    public function resolveMiddleware($middleware): ?MiddlewareInterface
     {
-        // If it's already a PSR-15 middleware, return it
-        if ($middleware instanceof MiddlewareInterface) {
-            return $middleware;
-        }
-
-        // If it's a string, try to resolve it from the container
-        if (is_string($middleware)) {
-            if (isset($this->namedMiddleware[$middleware])) {
-                return $this->resolveMiddleware($this->namedMiddleware[$middleware]);
+        try {
+            // If it's already a PSR-15 middleware, return it
+            if ($middleware instanceof MiddlewareInterface) {
+                return $middleware;
             }
 
-            if ($this->container && $this->container->has($middleware)) {
-                $resolvedMiddleware = $this->container->get($middleware);
+            // If it's a callable that returns a middleware, invoke it
+            if (is_callable($middleware) && !$middleware instanceof MiddlewareInterface) {
+                $resolvedMiddleware = $middleware();
                 if ($resolvedMiddleware instanceof MiddlewareInterface) {
                     return $resolvedMiddleware;
                 }
             }
 
-            throw new \InvalidArgumentException("Middleware '$middleware' not found or not a valid middleware");
+            // Handle string middleware with possible parameters
+            if (is_string($middleware)) {
+                list($name, $parameters) = $this->parseMiddlewareString($middleware);
+
+                // Check if we have the middleware registered
+                if (isset($this->namedMiddleware[$name])) {
+                    return $this->resolveNamedMiddleware($name, $parameters);
+                }
+
+                // Try to resolve as a class name
+                if (class_exists($middleware)) {
+                    $instance = $this->resolveClass($middleware);
+                    if ($instance instanceof MiddlewareInterface) {
+                        return $instance;
+                    }
+                }
+
+                $this->logger->warning("Failed to resolve string middleware", ['middleware' => $middleware]);
+                return null;
+            }
+
+            // Handle array configuration with class and parameters
+            if (is_array($middleware) && isset($middleware['class'])) {
+                $class = $middleware['class'];
+                $parameters = $middleware['parameters'] ?? [];
+
+                if (class_exists($class)) {
+                    $instance = $this->resolveClass($class);
+                    if ($instance instanceof MiddlewareInterface) {
+                        if (!empty($parameters)) {
+                            return new ParameterizedMiddlewareDecorator($instance, $parameters);
+                        }
+                        return $instance;
+                    }
+                }
+
+                $this->logger->warning("Failed to resolve array middleware configuration", [
+                    'class' => $class,
+                    'parameters' => $parameters
+                ]);
+                return null;
+            }
+
+            // We don't know how to handle this type
+            $this->logger->warning("Unknown middleware type", ['type' => gettype($middleware)]);
+            return null;
+        } catch (\Throwable $e) {
+            $this->logger->error("Error resolving middleware", [
+                'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            if (env('APP_DEBUG', false)) {
+                throw $e;
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * Resolve a named middleware
+     *
+     * @param string $name
+     * @param array $parameters
+     * @return MiddlewareInterface|null
+     */
+    private function resolveNamedMiddleware(string $name, array $parameters = []): ?MiddlewareInterface
+    {
+        $middlewareDef = $this->namedMiddleware[$name];
+
+        // If it's a string (class name)
+        if (is_string($middlewareDef)) {
+            $instance = $this->resolveClass($middlewareDef);
+            if ($instance instanceof MiddlewareInterface) {
+                if (!empty($parameters)) {
+                    return new ParameterizedMiddlewareDecorator($instance, $parameters);
+                }
+                return $instance;
+            }
         }
 
-        // If it's a callable, wrap it in a PSR-15 compatible middleware
-        if (is_callable($middleware)) {
-            return new CallableMiddlewareAdapter($middleware);
+        // If it's already a middleware instance
+        if ($middlewareDef instanceof MiddlewareInterface) {
+            if (!empty($parameters)) {
+                return new ParameterizedMiddlewareDecorator($middlewareDef, $parameters);
+            }
+            return $middlewareDef;
         }
 
-        throw new \InvalidArgumentException('Middleware must be a string, callable, or MiddlewareInterface instance');
+        // If it's a callable
+        if (is_callable($middlewareDef)) {
+            $instance = $middlewareDef();
+            if ($instance instanceof MiddlewareInterface) {
+                if (!empty($parameters)) {
+                    return new ParameterizedMiddlewareDecorator($instance, $parameters);
+                }
+                return $instance;
+            }
+        }
+
+        // If it's an array configuration
+        if (is_array($middlewareDef) && isset($middlewareDef['class'])) {
+            $class = $middlewareDef['class'];
+            $baseParams = $middlewareDef['parameters'] ?? [];
+
+            // Merge parameters with priority to runtime parameters
+            $mergedParams = array_merge($baseParams, $parameters);
+
+            $instance = $this->resolveClass($class);
+            if ($instance instanceof MiddlewareInterface) {
+                if (!empty($mergedParams)) {
+                    return new ParameterizedMiddlewareDecorator($instance, $mergedParams);
+                }
+                return $instance;
+            }
+        }
+
+        $this->logger->warning("Failed to resolve named middleware", ['name' => $name]);
+        return null;
+    }
+
+    /**
+     * Resolve a class to a middleware instance
+     *
+     * @param string $class
+     * @return MiddlewareInterface|null
+     */
+    private function resolveClass(string $class): ?MiddlewareInterface
+    {
+        if (!class_exists($class)) {
+            $this->logger->warning("Middleware class does not exist", ['class' => $class]);
+            return null;
+        }
+
+        try {
+            // Try to resolve from container first
+            if ($this->container->has($class)) {
+                $instance = $this->container->make($class);
+            } else {
+                // Create a new instance
+                $instance = new $class();
+            }
+
+            if ($instance instanceof MiddlewareInterface) {
+                return $instance;
+            }
+
+            $this->logger->warning("Class is not a middleware", [
+                'class' => $class,
+                'type' => get_class($instance)
+            ]);
+            return null;
+        } catch (\Throwable $e) {
+            $this->logger->error("Error creating middleware instance", [
+                'class' => $class,
+                'error' => $e->getMessage()
+            ]);
+
+            if (env('APP_DEBUG', false)) {
+                throw $e;
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * Parse a middleware string into name and parameters
+     *
+     * @param string $middlewareName Middleware name (e.g., 'auth:api' or 'throttle:60,1')
+     * @return array [name, parameters]
+     */
+    private function parseMiddlewareString(string $middlewareName): array
+    {
+        // Default values
+        $name = $middlewareName;
+        $parameters = [];
+
+        // Check if middleware has parameters
+        if (str_contains($middlewareName, ':')) {
+            list($name, $paramString) = explode(':', $middlewareName, 2);
+
+            // Parse parameters
+            if (str_contains($paramString, ',')) {
+                // Multiple parameters (e.g., 'throttle:60,1')
+                $paramValues = explode(',', $paramString);
+
+                // For throttle middleware
+                if ($name === 'throttle' && count($paramValues) >= 2) {
+                    $parameters = [
+                        'maxRequests' => (int) $paramValues[0],
+                        'minutes' => (int) $paramValues[1]
+                    ];
+                }
+                // For other middleware with multiple parameters
+                else {
+                    foreach ($paramValues as $i => $value) {
+                        $parameters["param$i"] = $value;
+                    }
+                }
+            } else {
+                // Single parameter
+
+                // For auth middleware
+                if ($name === 'auth') {
+                    $parameters['guard'] = $paramString;
+                }
+                // For role middleware
+                else if ($name === 'role') {
+                    $parameters['requiredRole'] = $paramString;
+                }
+                // For other middleware
+                else {
+                    $parameters['value'] = $paramString;
+                }
+            }
+        }
+
+        return [$name, $parameters];
     }
 
     /**

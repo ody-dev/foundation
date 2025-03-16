@@ -22,9 +22,9 @@ use Psr\Log\LoggerInterface;
 class AuthMiddleware implements MiddlewareInterface
 {
     /**
-     * @var string The guard type (e.g., 'api', 'jwt', 'web')
+     * @var string The default guard type (e.g., 'api', 'jwt', 'web')
      */
-    private string $guard;
+    private string $defaultGuard;
 
     /**
      * @var LoggerInterface
@@ -34,12 +34,12 @@ class AuthMiddleware implements MiddlewareInterface
     /**
      * AuthMiddleware constructor
      *
-     * @param string $guard
+     * @param string $defaultGuard
      * @param LoggerInterface|null $logger
      */
-    public function __construct(string $guard = 'web', ?LoggerInterface $logger = null)
+    public function __construct(string $defaultGuard = 'web', ?LoggerInterface $logger = null)
     {
-        $this->guard = $guard;
+        $this->defaultGuard = $defaultGuard;
         $this->logger = $logger ?? app(LoggerInterface::class);
     }
 
@@ -52,19 +52,26 @@ class AuthMiddleware implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        // Get the guard from request attribute or use the default
+        $guard = $request->getAttribute('middleware_guard', $this->defaultGuard);
+
+        dd($guard);
+
+        // Log which guard we're using
+        $this->logger->debug("Auth middleware using guard: {$guard}");
+
         $authHeader = $request->getHeaderLine('Authorization');
 
         // Based on the guard type, implement different authentication strategies
-        if ($this->guard === 'api') {
+        if ($guard === 'api') {
             // API token authentication
             if (strpos($authHeader, 'Bearer ') === 0) {
                 $token = substr($authHeader, 7);
-                var_dump($token);
                 if ($token === 'valid-api-token') {
                     return $handler->handle($request);
                 }
             }
-        } elseif ($this->guard === 'jwt') {
+        } elseif ($guard === 'jwt') {
             // JWT authentication
             if (strpos($authHeader, 'Bearer ') === 0) {
                 $token = substr($authHeader, 7);
@@ -85,7 +92,7 @@ class AuthMiddleware implements MiddlewareInterface
 
         // Authentication failed
         $this->logger->warning('Unauthorized access attempt', [
-            'guard' => $this->guard,
+            'guard' => $guard,
             'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
         ]);
 
@@ -95,7 +102,7 @@ class AuthMiddleware implements MiddlewareInterface
             ->json()
             ->withJson([
                 'error' => 'Unauthorized',
-                'guard' => $this->guard
+                'guard' => $guard
             ]);
     }
 }

@@ -22,9 +22,9 @@ use Psr\Log\LoggerInterface;
 class RoleMiddleware implements MiddlewareInterface
 {
     /**
-     * @var string Required role
+     * @var string Default required role
      */
-    private string $requiredRole;
+    private string $defaultRole;
 
     /**
      * @var LoggerInterface
@@ -34,12 +34,12 @@ class RoleMiddleware implements MiddlewareInterface
     /**
      * RoleMiddleware constructor
      *
-     * @param string $requiredRole
+     * @param string $defaultRole
      * @param LoggerInterface|null $logger
      */
-    public function __construct(string $requiredRole, ?LoggerInterface $logger = null)
+    public function __construct(string $defaultRole = 'user', ?LoggerInterface $logger = null)
     {
-        $this->requiredRole = $requiredRole;
+        $this->defaultRole = $defaultRole;
         $this->logger = $logger ?? app(LoggerInterface::class);
     }
 
@@ -52,16 +52,21 @@ class RoleMiddleware implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        // Get required role from request attribute or use default
+        $requiredRole = $request->getAttribute('middleware_requiredRole', $this->defaultRole);
+
+        $this->logger->debug("Role middleware checking for role: {$requiredRole}");
+
         // Get the user role (in a real app, fetch from JWT token or session)
         // This is a simplified example
         $userRole = 'admin'; // Example user role
 
-        if ($userRole === $this->requiredRole) {
+        if ($userRole === $requiredRole) {
             return $handler->handle($request);
         }
 
         $this->logger->warning('Insufficient permissions', [
-            'required_role' => $this->requiredRole,
+            'required_role' => $requiredRole,
             'user_role' => $userRole,
             'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
         ]);
@@ -72,7 +77,7 @@ class RoleMiddleware implements MiddlewareInterface
             ->json()
             ->withJson([
                 'error' => 'Forbidden - Insufficient permissions',
-                'required_role' => $this->requiredRole
+                'required_role' => $requiredRole
             ]);
     }
 }
