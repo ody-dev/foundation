@@ -31,8 +31,8 @@
   },
   "autoload": {
     "files": [
-      "src/Foundation/Http/functions/normalize_uploaded_files.php",
-      "src/Foundation/Http/functions/create_uploaded_file.php"
+      "src/Http/functions/normalize_uploaded_files.php",
+      "src/Http/functions/create_uploaded_file.php"
     ],
     "psr-4": {
       "Ody\\Foundation\\": "src/"
