@@ -13,7 +13,7 @@
     "php": ">=8.3",
     "ody/container": "dev-master",
     "ody/logger": "dev-master",
-    "ody/support": "dev-master",
+    "ody/support": "0.1.0",
     "nikic/fast-route": "^1.3",
     "psr/http-message": "^2.0",
     "psr/http-server-middleware": "^1.0.2",
