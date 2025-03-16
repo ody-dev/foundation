@@ -394,18 +394,93 @@ class MiddlewareRegistry
     public function resolveMiddleware($middleware): ?MiddlewareInterface
     {
         try {
-            // Try each resolution strategy in order
-            $instance = $this->resolveBuiltInTypes($middleware)
-                ?? $this->resolveNamedMiddleware($middleware)
-                ?? $this->resolveMiddlewareGroup($middleware)
-                ?? $this->resolveClassMiddleware($middleware)
-                ?? $this->resolveParameterizedMiddleware($middleware);
+            // 1. Handle direct instances
+            if ($middleware instanceof MiddlewareInterface) {
+                return $middleware;
+            }
 
-            if ($instance) {
+            // 2. Handle callable factories
+            if (is_callable($middleware) && !is_string($middleware)) {
+                $result = $middleware();
+                if ($result instanceof MiddlewareInterface) {
+                    return $result;
+                }
+
+                // Adapt simple callables to PSR-15 format
+                return new CallableMiddlewareAdapter($middleware);
+            }
+
+            // 3. Handle string references
+            if (is_string($middleware)) {
+                // 3.1 Check if this is a parameterized middleware (like 'auth:api')
+                if (strpos($middleware, ':') !== false) {
+                    [$baseName, $parameter] = explode(':', $middleware, 2);
+
+                    // Store the parameter for this specific middleware
+                    $this->withParameters($baseName, ['value' => $parameter]);
+
+                    // 3.1.1 Check if we have a specific named middleware for the full string
+                    if (isset($this->namedMiddleware[$middleware])) {
+                        return $this->resolveMiddleware($this->namedMiddleware[$middleware]);
+                    }
+
+                    // 3.1.2 Check if we have a middleware for the base name
+                    if (isset($this->namedMiddleware[$baseName])) {
+                        // For 'auth:api', we specifically want the auth middleware with api parameter
+                        $baseMiddleware = $this->namedMiddleware[$baseName];
+
+                        // If it's auth middleware, set the guard parameter
+                        if ($baseName === 'auth') {
+                            // Special case for auth middleware to correctly set the guard parameter
+                            $this->withParameters($baseName, ['guard' => $parameter]);
+                        } elseif ($baseName === 'role') {
+                            // Special case for role middleware
+                            $this->withParameters($baseName, ['requiredRole' => $parameter]);
+                        } elseif ($baseName === 'throttle' && strpos($parameter, ',') !== false) {
+                            // Special case for throttle with rate limits
+                            [$maxRequests, $minutes] = explode(',', $parameter, 2);
+                            $this->withParameters($baseName, [
+                                'maxRequests' => (int)$maxRequests,
+                                'minutes' => (int)$minutes
+                            ]);
+                        }
+
+                        return $this->resolveMiddleware($baseMiddleware);
+                    }
+                }
+
+                // 3.2 Check for exact named middleware match
+                if (isset($this->namedMiddleware[$middleware])) {
+                    return $this->resolveMiddleware($this->namedMiddleware[$middleware]);
+                }
+
+                // 3.3 Check for middleware group
+                if (isset($this->middlewareGroups[$middleware])) {
+                    return $this->createMiddlewareGroupAdapter($this->middlewareGroups[$middleware]);
+                }
+
+                // 3.4 Try to resolve as a class (fallback)
+                if (class_exists($middleware)) {
+                    return $this->resolveClassMiddleware($middleware);
+                }
+            }
+
+            // 4. Handle middleware configuration arrays
+            if (is_array($middleware) && isset($middleware['class'])) {
+                $class = $middleware['class'];
+                $parameters = $middleware['parameters'] ?? [];
+
+                $instance = $this->resolveClassMiddleware($class);
+                if ($instance && !empty($parameters)) {
+                    return $this->createParametrizedMiddleware($instance, $parameters);
+                }
+
                 return $instance;
             }
 
-            $this->logger->warning("Failed to resolve middleware", ['middleware' => $this->getMiddlewareName($middleware)]);
+            $this->logger->warning("Failed to resolve middleware", [
+                'middleware' => $this->getMiddlewareName($middleware)
+            ]);
             return null;
 
         } catch (\Throwable $e) {

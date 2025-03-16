@@ -55,8 +55,6 @@ class AuthMiddleware implements MiddlewareInterface
         // Get the guard from request attribute or use the default
         $guard = $request->getAttribute('middleware_guard', $this->defaultGuard);
 
-        dd($guard);
-
         // Log which guard we're using
         $this->logger->debug("Auth middleware using guard: {$guard}");
 
