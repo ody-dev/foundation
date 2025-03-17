@@ -19,8 +19,6 @@ class StreamFactory implements StreamFactoryInterface
         fwrite($resource, $content);
         rewind($resource);
 
-        var_dump($this->createStreamFromResource($resource));
-
         return $this->createStreamFromResource($resource);
     }
 

@@ -699,6 +699,7 @@ class MiddlewareRegistry
      */
     private function resolveConstructorParameter(\ReflectionParameter $param, string $className)
     {
+        error_log($className);
         // Try to resolve by type hint
         $type = $param->getType() && !$param->getType()->isBuiltin()
             ? $param->getType()->getName()
