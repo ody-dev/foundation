@@ -222,16 +222,4 @@ class MiddlewareResolutionCache
         $this->resolvedMiddleware = [];
         $this->cacheHits = [];
     }
-
-    /**
-     * Get the class name from a middleware string
-     *
-     * @param string $middleware
-     * @return string The middleware class name or identifier
-     */
-    protected function getMiddlewareName(string $middleware): string
-    {
-        // Simply return the middleware name without parameter parsing
-        return $middleware;
-    }
 }

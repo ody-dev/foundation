@@ -9,6 +9,8 @@
 
 namespace Ody\Foundation\Providers;
 
+use Ody\Container\Container;
+use Ody\Foundation\Middleware\MiddlewareRegistry;
 use Ody\Foundation\MiddlewareManager;
 use Ody\Support\Config;
 use Psr\Log\LoggerInterface;
@@ -25,10 +27,36 @@ class MiddlewareServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Register MiddlewareManager as a singleton
-        $this->singleton(MiddlewareManager::class, function ($container) {
+        // Register MiddlewareRegistry as a singleton
+        $this->singleton(MiddlewareRegistry::class, function (Container $container) {
+            $config = $container->make(Config::class);
             $logger = $container->make(LoggerInterface::class);
-            return new MiddlewareManager($container, $logger);
+
+            // Get cache configuration
+            $enableStats = $config->get('app.middleware.cache.stats', false);
+
+            // Create registry
+            $registry = new MiddlewareRegistry($container, $logger, $enableStats);
+
+            // Register middleware configuration
+            $middlewareConfig = $config->get('app.middleware', []);
+            if (is_array($middlewareConfig)) {
+                $registry->fromConfig($middlewareConfig);
+            }
+
+            return $registry;
+        });
+
+        // Register MiddlewareManager as a singleton
+        $this->singleton(MiddlewareManager::class, function (Container $container) {
+            $config = $container->make(Config::class);
+            $logger = $container->make(LoggerInterface::class);
+
+            // Get stats configuration
+            $enableStats = $config->get('app.middleware.cache.stats', false);
+
+            // Create manager with registry
+            return new MiddlewareManager($container, $logger, $enableStats);
         });
 
         // Add middleware manager alias for easier access
@@ -42,39 +70,36 @@ class MiddlewareServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $manager = $this->make(MiddlewareManager::class);
-        $config = $this->make(Config::class);
-        $logger = $this->make(LoggerInterface::class);
+        // No bootstrapping needed as the middleware configuration
+        // is loaded during registration
 
-        $this->registerGlobalMiddleware($manager, $config, $logger);
+        // Set up middleware cache stats collection if enabled
+        $config = $this->make(Config::class);
+
+        if ($config->get('app.middleware.cache.stats', false)) {
+            $this->setupStatsCollection();
+        }
     }
 
     /**
-     * Register global middleware from configuration
+     * Set up middleware cache stats collection
      *
-     * @param MiddlewareManager $manager
-     * @param Config $config
-     * @param LoggerInterface $logger
      * @return void
      */
-    protected function registerGlobalMiddleware(
-        MiddlewareManager $manager,
-        Config $config,
-        LoggerInterface $logger
-    ): void {
-        // Get global middleware from configuration
-        $globalMiddleware = $config->get('app.middleware.global', []);
+    protected function setupStatsCollection(): void
+    {
+        // Get the registry instance
+        $registry = $this->make(MiddlewareRegistry::class);
+        $logger = $this->make(LoggerInterface::class);
 
-        // Register each middleware
-        foreach ($globalMiddleware as $middleware) {
-            try {
-                $manager->addGlobal($middleware);
-                logger()->debug("Registered global middleware: " . (is_string($middleware) ? $middleware : get_class($middleware)));
-            } catch (\Throwable $e) {
-                $logger->error("Failed to register global middleware", [
-                    'middleware' => is_string($middleware) ? $middleware : get_class($middleware),
-                    'error' => $e->getMessage()
-                ]);
+        // For Swoole environments, periodically log cache stats
+        if (extension_loaded('swoole')) {
+            // Check if we can register a timer
+            if (function_exists('Swoole\Timer::tick')) {
+                \Swoole\Timer::tick(60000, function () use ($registry, $logger) {
+                    $stats = $registry->getCacheStats();
+                    $logger->info('Middleware resolution cache stats', $stats);
+                });
             }
         }
     }

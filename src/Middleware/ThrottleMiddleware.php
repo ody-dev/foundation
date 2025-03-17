@@ -62,8 +62,8 @@ class ThrottleMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         // Get rate limits from request attributes or use defaults
-        $maxRequests = $request->getAttribute('middleware_maxRequests', $this->defaultMaxRequests);
-        $minutes = $request->getAttribute('middleware_minutes', $this->defaultMinutes);
+        $maxRequests = $this->defaultMaxRequests;
+        $minutes = $this->defaultMinutes;
 
         if ($this->logger) {
             $this->logger->debug("Throttle middleware using limits: {$maxRequests} requests per {$minutes} minute(s)");

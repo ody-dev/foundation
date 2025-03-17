@@ -244,11 +244,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         $request = $request ?? Request::createFromGlobals();
 
         // Log incoming request
-        $this->logger->info('Request received', [
-            'method' => $request->getMethod(),
-            'path' => $request->getUri()->getPath(),
-            'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
-        ]);
+        $this->logRequest($request);
 
         try {
             // Find matching route
@@ -260,8 +256,11 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             // Create final handler for the route
             $finalHandler = $this->createRouteHandler($routeInfo);
 
+            // Get middleware manager
+            $middlewareManager = $this->getMiddlewareManager();
+
             // Process the request through middleware
-            return $this->getMiddlewareManager()->process(
+            return $middlewareManager->process(
                 $request,
                 $request->getMethod(),
                 $request->getUri()->getPath(),
