@@ -16,10 +16,7 @@ use Ody\Foundation\Http\ResponseEmitter;
 use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
-use Ody\Foundation\Providers\FacadeServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
-use Ody\Foundation\Providers\MiddlewareServiceProvider;
-use Ody\Foundation\Providers\RouteServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -78,10 +75,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         EnvServiceProvider::class,
         ConfigServiceProvider::class,
         LoggingServiceProvider::class,
-        ApplicationServiceProvider::class,
-        FacadeServiceProvider::class,
-        MiddlewareServiceProvider::class,
-        RouteServiceProvider::class,
+        ApplicationServiceProvider::class
     ];
 
     /**
