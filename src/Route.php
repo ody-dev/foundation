@@ -9,11 +9,6 @@
 
 namespace Ody\Foundation;
 
-use Ody\Foundation\Middleware\MiddlewareRegistry;
-
-/**
- * Route class for defining application routes
- */
 class Route
 {
     /**
@@ -32,10 +27,14 @@ class Route
     private $handler;
 
     /**
-     * @var MiddlewareRegistry
+     * @var array Middleware list for this route
      */
-    private MiddlewareRegistry $middlewareRegistry;
-    private array $middlewareList;
+    private array $middlewareList = [];
+
+    /**
+     * @var MiddlewareManager
+     */
+    private MiddlewareManager $middlewareManager;
 
     /**
      * Route constructor
@@ -43,19 +42,38 @@ class Route
      * @param string $method
      * @param string $path
      * @param mixed $handler
-     * @param MiddlewareRegistry $middlewareRegistry
+     * @param MiddlewareManager $middlewareManager
      */
     public function __construct(
-        string             $method,
-        string             $path,
-                           $handler,
-        MiddlewareRegistry $middlewareRegistry
+        string            $method,
+        string            $path,
+                          $handler,
+        MiddlewareManager $middlewareManager
     )
     {
         $this->method = $method;
         $this->path = $path;
         $this->handler = $handler;
-        $this->middlewareRegistry = $middlewareRegistry;
+        $this->middlewareManager = $middlewareManager;
+    }
+
+    /**
+     * Add middleware to the route
+     *
+     * @param mixed ...$middleware One or more middleware classes, instances, or callables
+     * @return self
+     */
+    public function middleware(...$middleware): self
+    {
+        foreach ($middleware as $m) {
+            // Store the middleware reference
+            $this->middlewareList[] = $m;
+
+            // Register with the middleware manager
+            $this->middlewareManager->addForRoute($this->method, $this->path, $m);
+        }
+
+        return $this;
     }
 
     /**
@@ -69,56 +87,8 @@ class Route
         foreach ($middleware as $m) {
             $this->middleware($m);
         }
-        return $this;
-    }
-
-    /**
-     * Add middleware to the route
-     *
-     * @param callable|object|string $middleware
-     * @return self
-     */
-    public function middleware(callable|object|string $middleware): self
-    {
-        // Store the original pattern as is
-        $this->middlewareRegistry->addToRoute($this->method, $this->path, $middleware);
-
-        // Also register the middleware with the route for easier access later
-        if (!property_exists($this, 'middlewareList')) {
-            $this->middlewareList = [];
-        }
-
-        $this->middlewareList[] = $middleware;
 
         return $this;
-    }
-
-    /**
-     * Add a middleware with parameters
-     *
-     * @param string $middleware
-     * @param array $parameters
-     * @return self
-     */
-    public function middlewareWithParams(string $middleware, array $parameters): self
-    {
-        // Register the middleware
-        $this->middlewareRegistry->addToRoute($this->method, $this->path, $middleware);
-
-        // Add parameters
-        $this->middlewareRegistry->withParameters($middleware, $parameters);
-
-        return $this;
-    }
-
-    /**
-     * Get all middleware registered for this route
-     *
-     * @return array
-     */
-    public function getMiddleware(): array
-    {
-        return $this->middlewareList ?? [];
     }
 
     /**
@@ -149,6 +119,16 @@ class Route
     public function getHandler()
     {
         return $this->handler;
+    }
+
+    /**
+     * Get the middleware list
+     *
+     * @return array
+     */
+    public function getMiddleware(): array
+    {
+        return $this->middlewareList;
     }
 
     /**

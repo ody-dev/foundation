@@ -52,6 +52,7 @@ class AuthMiddleware implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        logger()->debug('AuthMiddleware::process()');
         // Get the guard from request attribute or use the default
         $guard = $request->getAttribute('middleware_guard', $this->defaultGuard);
 

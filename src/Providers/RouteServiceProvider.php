@@ -4,7 +4,7 @@ namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
 use Ody\Foundation\Loaders\RouteLoader;
-use Ody\Foundation\Middleware\MiddlewareRegistry;
+use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router;
 use Ody\Support\Config;
 use Psr\Log\LoggerInterface;
@@ -13,7 +13,6 @@ use Psr\Log\LoggerInterface;
  * Route Service Provider
  *
  * Handles route registration and loading.
- * Demonstrates how to use the new ServiceProvider base class.
  */
 class RouteServiceProvider extends ServiceProvider
 {
@@ -40,12 +39,18 @@ class RouteServiceProvider extends ServiceProvider
     {
         // Register RouteLoader as a singleton
         $this->singleton(RouteLoader::class, function (Container $container) {
-            error_log('RouteServiceProvider::singleton(RouteLoader)...');
+            logger()->debug('RouteServiceProvider::singleton(RouteLoader)...');
+
+            // Get the router instance from the container
             $router = $container->make(Router::class);
-            $middlewareRegistry = $container->make(MiddlewareRegistry::class);
+
+            // Get the middleware manager
+            $middlewareManager = $container->make(MiddlewareManager::class);
+
+            // Get the logger
             $logger = $container->make(LoggerInterface::class);
 
-            return new RouteLoader($router, $middlewareRegistry, $container, $logger);
+            return new RouteLoader($router, $middlewareManager, $container, $logger);
         });
 
         // Register the route loader alias
@@ -67,10 +72,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->routeLoader = $this->make(RouteLoader::class);
 
         // Only register the route loader, but don't load routes yet
-        error_log("RouteServiceProvider: Setting up lazy route loading");
-
-        // Load routes from the configured path
-//        $this->loadRoutes();
+        logger()->debug("RouteServiceProvider: Setting up lazy route loading");
     }
 
     /**
@@ -102,8 +104,7 @@ class RouteServiceProvider extends ServiceProvider
             } else if (file_exists($fullPath)) {
                 $this->routeLoader->load($fullPath, $attributes);
             } else {
-                $logger = $this->make(LoggerInterface::class);
-                $logger->warning("Route path not found: {$path}");
+                logger()->warning("Route path not found: {$path}");
             }
         }
     }

@@ -1,13 +1,9 @@
 <?php
-// Direct fix for Router.php
-
 namespace Ody\Foundation;
 
-use FastRoute;
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\MiddlewareRegistry;
 use function FastRoute\simpleDispatcher;
 
 class Router
@@ -33,29 +29,29 @@ class Router
     private $container;
 
     /**
-     * @var MiddlewareRegistry
+     * @var MiddlewareManager
      */
-    private $middlewareRegistry;
+    private $middlewareManager;
 
     /**
      * Router constructor
      *
      * @param Container|null $container
-     * @param MiddlewareRegistry|null $middlewareRegistry
+     * @param MiddlewareManager|null $middlewareManager
      */
     public function __construct(
-        ?Container          $container = null,
-        ?MiddlewareRegistry $middlewareRegistry = null
+        ?Container         $container = null,
+        ?MiddlewareManager $middlewareManager = null
     )
     {
         $this->container = $container ?? new Container();
 
-        if ($middlewareRegistry) {
-            $this->middlewareRegistry = $middlewareRegistry;
-        } else if ($container && $container->has(MiddlewareRegistry::class)) {
-            $this->middlewareRegistry = $container->make(MiddlewareRegistry::class);
+        if ($middlewareManager) {
+            $this->middlewareManager = $middlewareManager;
+        } else if ($container && $container->has(MiddlewareManager::class)) {
+            $this->middlewareManager = $container->make(MiddlewareManager::class);
         } else {
-            $this->middlewareRegistry = new MiddlewareRegistry($this->container);
+            $this->middlewareManager = new MiddlewareManager($this->container);
         }
 
         // IMPORTANT: Always use the static routes if available
@@ -74,7 +70,7 @@ class Router
      */
     public function get(string $path, $handler): Route
     {
-        $route = new Route('GET', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('GET', $path, $handler, $this->middlewareManager);
 
         // Add to instance routes
         $this->routes[] = ['GET', $path, $handler];
@@ -87,51 +83,87 @@ class Router
         return $route;
     }
 
-    // Add the same pattern for other HTTP methods
+    /**
+     * Register a POST route
+     *
+     * @param string $path
+     * @param mixed $handler
+     * @return Route
+     */
     public function post(string $path, $handler): Route
     {
-        $route = new Route('POST', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('POST', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['POST', $path, $handler];
         self::$allRoutes[] = ['POST', $path, $handler];
         error_log("Router: Registered POST route: {$path}");
         return $route;
     }
 
+    /**
+     * Register a PUT route
+     *
+     * @param string $path
+     * @param mixed $handler
+     * @return Route
+     */
     public function put(string $path, $handler): Route
     {
-        $route = new Route('PUT', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('PUT', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['PUT', $path, $handler];
         self::$allRoutes[] = ['PUT', $path, $handler];
         error_log("Router: Registered PUT route: {$path}");
         return $route;
     }
 
+    /**
+     * Register a DELETE route
+     *
+     * @param string $path
+     * @param mixed $handler
+     * @return Route
+     */
     public function delete(string $path, $handler): Route
     {
-        $route = new Route('DELETE', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('DELETE', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['DELETE', $path, $handler];
         self::$allRoutes[] = ['DELETE', $path, $handler];
         error_log("Router: Registered DELETE route: {$path}");
         return $route;
     }
 
+    /**
+     * Register a PATCH route
+     *
+     * @param string $path
+     * @param mixed $handler
+     * @return Route
+     */
     public function patch(string $path, $handler): Route
     {
-        $route = new Route('PATCH', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('PATCH', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['PATCH', $path, $handler];
         self::$allRoutes[] = ['PATCH', $path, $handler];
         error_log("Router: Registered PATCH route: {$path}");
         return $route;
     }
 
+    /**
+     * Register an OPTIONS route
+     *
+     * @param string $path
+     * @param mixed $handler
+     * @return Route
+     */
     public function options(string $path, $handler): Route
     {
-        $route = new Route('OPTIONS', $path, $handler, $this->middlewareRegistry);
+        $route = new Route('OPTIONS', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['OPTIONS', $path, $handler];
         self::$allRoutes[] = ['OPTIONS', $path, $handler];
         error_log("Router: Registered OPTIONS route: {$path}");
         return $route;
     }
+
+    // The rest of your Router class...
 
     /**
      * Match a request to a route
@@ -414,5 +446,15 @@ class Router
     public static function countStaticRoutes(): int
     {
         return count(self::$allRoutes);
+    }
+
+    /**
+     * Get the middleware manager
+     *
+     * @return MiddlewareManager
+     */
+    public function getMiddlewareManager(): MiddlewareManager
+    {
+        return $this->middlewareManager;
     }
 }

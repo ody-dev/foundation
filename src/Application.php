@@ -13,7 +13,6 @@ use Ody\Container\Container;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
 use Ody\Foundation\Http\ResponseEmitter;
-use Ody\Foundation\Middleware\MiddlewareRegistry;
 use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
@@ -40,11 +39,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     private ?Router $router = null;
 
     /**
-     * @var MiddlewareRegistry|null
-     */
-    private ?MiddlewareRegistry $middlewareRegistry = null;
-
-    /**
      * @var LoggerInterface
      */
     private LoggerInterface $logger;
@@ -53,6 +47,11 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * @var ResponseEmitter|null
      */
     private ?ResponseEmitter $responseEmitter = null;
+
+    /**
+     * @var MiddlewareManager|null
+     */
+    private ?MiddlewareManager $middlewareManager = null;
 
     // Add these properties to the class
     /**
@@ -245,19 +244,37 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         $request = $request ?? Request::createFromGlobals();
 
         // Log incoming request
-        $this->logRequest($request);
+        $this->logger->info('Request received', [
+            'method' => $request->getMethod(),
+            'path' => $request->getUri()->getPath(),
+            'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
+        ]);
 
-        // Find matching route
-        $routeInfo = $this->getRouter()->match(
-            $request->getMethod(),
-            $request->getUri()->getPath()
-        );
+        try {
+            // Find matching route
+            $routeInfo = $this->getRouter()->match(
+                $request->getMethod(),
+                $request->getUri()->getPath()
+            );
 
-        // Create the final handler based on route info
-        $finalHandler = $this->createRouteHandler($routeInfo);
+            // Create final handler for the route
+            $finalHandler = $this->createRouteHandler($routeInfo);
 
-        // Process the request through middleware using the registry
-        return $this->getMiddlewareRegistry()->process($request, $finalHandler);
+            // Process the request through middleware
+            return $this->getMiddlewareManager()->process(
+                $request,
+                $request->getMethod(),
+                $request->getUri()->getPath(),
+                $finalHandler
+            );
+        } catch (\Throwable $e) {
+            $this->logger->error('Error handling request', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return $this->handleException($e);
+        }
     }
 
     /**
@@ -273,6 +290,20 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             'path' => $request->getUri()->getPath(),
             'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
         ]);
+    }
+
+    /**
+     * Get middleware manager instance
+     *
+     * @return MiddlewareManager
+     */
+    public function getMiddlewareManager(): MiddlewareManager
+    {
+        if ($this->middlewareManager === null) {
+            $this->middlewareManager = $this->container->make(MiddlewareManager::class);
+        }
+
+        return $this->middlewareManager;
     }
 
     /**
@@ -392,16 +423,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             ->withBody($this->createJsonBody([
                 'error' => 'Not Found'
             ]));
-    }
-
-    /**
-     * Get middleware registry (lazy-loaded)
-     *
-     * @return MiddlewareRegistry
-     */
-    public function getMiddlewareRegistry(): MiddlewareRegistry
-    {
-        return $this->container->make(MiddlewareRegistry::class);
     }
 
     /**

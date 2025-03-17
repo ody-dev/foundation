@@ -13,8 +13,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Ody\Foundation\Http\Response;
-use Ody\Foundation\Logger;
 
 /**
  * JSON Body Parser Middleware (PSR-15)
@@ -30,6 +28,7 @@ class JsonBodyParserMiddleware implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        logger()->debug('JsonBodyParserMiddleware::process()');
         $contentType = $request->getHeaderLine('Content-Type');
 
         if (str_contains($contentType, 'application/json')) {

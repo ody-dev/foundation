@@ -3,7 +3,7 @@
 namespace Ody\Foundation\Loaders;
 
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\MiddlewareRegistry;
+use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -24,11 +24,11 @@ class RouteLoader
     protected Router $router;
 
     /**
-     * The middleware registry instance.
+     * The middleware manager instance.
      *
-     * @var MiddlewareRegistry
+     * @var MiddlewareManager
      */
-    protected MiddlewareRegistry $middlewareRegistry;
+    protected MiddlewareManager $middlewareManager;
 
     /**
      * The container instance.
@@ -55,18 +55,18 @@ class RouteLoader
      * Create a new route loader instance.
      *
      * @param Router $router
-     * @param MiddlewareRegistry $middlewareRegistry
+     * @param MiddlewareManager $middlewareManager
      * @param Container $container
      * @param LoggerInterface|null $logger
      */
     public function __construct(
         Router $router,
-        MiddlewareRegistry $middlewareRegistry,
+        MiddlewareManager $middlewareManager,
         Container $container,
         ?LoggerInterface $logger = null
     ) {
         $this->router = $router;
-        $this->middlewareRegistry = $middlewareRegistry;
+        $this->middlewareManager = $middlewareManager;
         $this->container = $container;
         $this->logger = $logger ?? new NullLogger();
     }
@@ -96,14 +96,14 @@ class RouteLoader
         // Add to loaded files list
         $this->loadedFiles[] = $path;
 
-        // Load the routes with the router, middleware registry, and container in scope
+        // Load the routes with the router, middleware manager, and container in scope
         $router = $this->router;
-        $middlewareRegistry = $this->middlewareRegistry;
+        $middlewareManager = $this->middlewareManager;
         $container = $this->container;
 
         // Apply attributes if provided (for route groups)
         if (!empty($attributes)) {
-            $router->group($attributes, function () use ($path, $router, $middlewareRegistry, $container) {
+            $router->group($attributes, function () use ($path, $router, $middlewareManager, $container) {
                 require $path;
             });
         } else {
@@ -190,14 +190,14 @@ class RouteLoader
     }
 
     /**
-     * Set the middleware registry instance.
+     * Set the middleware manager instance.
      *
-     * @param MiddlewareRegistry $middlewareRegistry
+     * @param MiddlewareManager $middlewareManager
      * @return self
      */
-    public function setMiddlewareRegistry(MiddlewareRegistry $middlewareRegistry): self
+    public function setMiddlewareManager(MiddlewareManager $middlewareManager): self
     {
-        $this->middlewareRegistry = $middlewareRegistry;
+        $this->middlewareManager = $middlewareManager;
         return $this;
     }
 

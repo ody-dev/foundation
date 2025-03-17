@@ -6,7 +6,7 @@ use Ody\Foundation\Application;
 use Ody\Foundation\Middleware\CorsMiddleware;
 use Ody\Foundation\Middleware\JsonBodyParserMiddleware;
 use Ody\Foundation\Middleware\LoggingMiddleware;
-use Ody\Foundation\Middleware\MiddlewareRegistry;
+use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router;
 use Ody\Support\Config;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -69,9 +69,10 @@ class ApplicationServiceProvider extends ServiceProvider
     public function register(): void
     {
         // Register router with container and middleware
+        // Register router with container and middleware manager
         $this->singleton(Router::class, function ($container) {
-            $middlewareRegistry = $container->make(MiddlewareRegistry::class);
-            return new Router($container, $middlewareRegistry);
+            $middlewareManager = $container->make(MiddlewareManager::class);
+            return new Router($container, $middlewareManager);
         });
 
         // Register PSR-15 middleware classes

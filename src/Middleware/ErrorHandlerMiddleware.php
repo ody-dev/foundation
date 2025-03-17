@@ -46,6 +46,7 @@ class ErrorHandlerMiddleware implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        logger()->debug('ErrorHandlerMiddleware::process()');
         try {
             return $handler->handle($request);
         } catch (\Throwable $e) {
