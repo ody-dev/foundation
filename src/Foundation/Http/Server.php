@@ -48,9 +48,18 @@ class Server
             static::setContext($request);
 
             (new RequestCallback(
-                static::$app
+                self::$app
             ))->handle($request, $response);
+
+            // Clean up after request
+            self::cleanupAfterRequest();
         });
+    }
+
+    private static function cleanupAfterRequest(): void
+    {
+        // Release any resources that shouldn't persist between requests
+        gc_collect_cycles(); // Force garbage collection if memory usage is high
     }
 
     /**

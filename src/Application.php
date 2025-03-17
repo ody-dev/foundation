@@ -483,7 +483,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             $logData['trace'] = $e->getTraceAsString();
         }
 
-        $this->logger->error($message, $logData);
+        logger()->error($message, $logData);
     }
 
     /**

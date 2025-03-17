@@ -2,31 +2,21 @@
 namespace Ody\Foundation\Http;
 
 use Ody\Foundation\Application;
-use Ody\Foundation\Bootstrap;
-use Ody\Foundation\Http\ServerRequest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Swoole\Http\Request;
 use Swoole\Http\Response;
-use function Ody\Foundation\Http\normalizeUploadedFiles;
 
 final class RequestCallback
 {
     private RequestHandlerInterface $handler;
     private RequestCallbackOptions $options;
 
-    public function __construct(RequestHandlerInterface $handler, ?RequestCallbackOptions $options = null)
+    public function __construct(Application $handler, ?RequestCallbackOptions $options = null)
     {
         $this->handler = $handler;
         $this->options = $options ?? new RequestCallbackOptions();
-
-        // Safeguard against bootstrap process
-        if ($handler instanceof Application) {
-            if (!$handler->isBootstrapped()) {
-                error_log("CRITICAL: Application instance passed to RequestCallback is not bootstrapped");
-            }
-        }
     }
 
     public function handle(Request $request, Response $response): void
