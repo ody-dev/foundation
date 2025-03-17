@@ -1,5 +1,8 @@
 # ODY Framework - Foundation
 
+⚠️ **IMPORTANT**: This repository is automatically generated from the [ody repo](https://github.com/ody-dev/ody) and is
+read-only.
+
 The Foundation module is the core of the ODY PHP Framework, providing essential functionality for building high-performance API applications with Swoole coroutines.
 
 ## Overview
