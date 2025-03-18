@@ -129,8 +129,12 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             $this->bootstrap();
         }
 
-        $response = $this->handleRequest();
+        $request = Request::createFromGlobals();
+        $response = $this->handleRequest($request);
         $this->getResponseEmitter()->emit($response);
+
+        // Run terminating middleware after the response has been sent
+        $this->getMiddlewareManager()->terminate($request, $response);
     }
 
     /**
@@ -250,16 +254,15 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             // Create final handler for the route
             $finalHandler = $this->createRouteHandler($routeInfo);
 
-            // Get middleware manager
-            $middlewareManager = $this->getMiddlewareManager();
-
             // Process the request through middleware
-            return $middlewareManager->process(
+            $response = $this->getMiddlewareManager()->process(
                 $request,
                 $request->getMethod(),
                 $request->getUri()->getPath(),
                 $finalHandler
             );
+
+            return $response;
         } catch (\Throwable $e) {
             $this->logger->error('Error handling request', [
                 'error' => $e->getMessage(),

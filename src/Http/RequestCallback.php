@@ -28,11 +28,12 @@ final class RequestCallback
             // Directly handle the request without reinitializing
             $psrResponse = $this->handler->handle($serverRequest);
 
-            // Log the response
-            error_log("RequestCallback: Got PSR-7 response with status " . $psrResponse->getStatusCode());
-
             // Convert PSR-7 response to Swoole response
             $this->emit($psrResponse, $response);
+
+            if ($this->handler instanceof Application) {
+                $this->handler->getMiddlewareManager()->terminate($serverRequest, $psrResponse);
+            }
         } catch (\Throwable $e) {
             // Log any exceptions
             error_log("RequestCallback Exception: " . $e->getMessage());

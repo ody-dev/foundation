@@ -42,6 +42,11 @@ class MiddlewareManager
     protected MiddlewareRegistry $registry;
 
     /**
+     * @var array Middleware instances that implement TerminatingMiddlewareInterface
+     */
+    protected array $terminatingMiddleware = [];
+
+    /**
      * Constructor
      *
      * @param Container $container
@@ -86,6 +91,9 @@ class MiddlewareManager
         // Build the middleware pipeline for this route
         $pipeline = $this->buildPipeline($method, $path, $finalHandler);
 
+//        // Track terminating middleware for this request
+//        $this->collectTerminatingMiddleware($middlewareList);
+
         // Process the request through the pipeline
         return $pipeline->handle($request);
     }
@@ -116,6 +124,55 @@ class MiddlewareManager
             $finalHandler,
             $this->logger
         );
+    }
+
+    /**
+     * Collect middleware instances that implement TerminatingMiddlewareInterface
+     *
+     * @param array $middlewareList
+     * @return void
+     */
+    protected function collectTerminatingMiddleware(array $middlewareList): void
+    {
+        foreach ($middlewareList as $middleware) {
+            try {
+                $instance = $this->resolutionCache->resolve($middleware);
+
+                if ($instance instanceof TerminatingMiddlewareInterface) {
+                    $this->terminatingMiddleware[] = $instance;
+                }
+            } catch (\Throwable $e) {
+                $this->logger->warning("Failed to resolve terminating middleware", [
+                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Run terminating middleware after the response has been sent
+     *
+     * @param ServerRequestInterface $request
+     * @param ResponseInterface $response
+     * @return void
+     */
+    public function terminate(ServerRequestInterface $request, ResponseInterface $response): void
+    {
+        foreach ($this->terminatingMiddleware as $middleware) {
+            try {
+                $middleware->terminate($request, $response);
+            } catch (\Throwable $e) {
+                $this->logger->error("Error in terminating middleware", [
+                    'middleware' => get_class($middleware),
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
+        }
+
+        // Clear terminating middleware for this request
+        $this->terminatingMiddleware = [];
     }
 
     /**
