@@ -87,13 +87,16 @@ class ServeCommand extends Command
             $router->markRoutesAsRegistered();
         }
 
+        // TODO: Implement admin API server
+//        AdminServer::init($server);
+
         // Start the server
         HttpServer::start(
             ServerManager::init(ServerType::HTTP_SERVER) // ServerType::WS_SERVER to start a websocket server
                 ->createServer($config)
                 ->setServerConfig($config['additional'])
                 ->registerCallbacks($config['callbacks'])
-                ->setWatcher(true, $config['watch'], $serverState)
+                ->setWatcher($input->getOption('watch'), $config['watch'], $serverState)
                 ->getServerInstance()
         );
 
