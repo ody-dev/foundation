@@ -40,9 +40,9 @@ class HttpServer
                 self::$app->bootstrap();
             }
 
-            error_log("HttpServer::start() initialized application");
+            logger()->debug("HttpServer::start() initialized application");
         } else {
-            error_log("HttpServer::start() using existing application instance");
+            logger()->debug("HttpServer::start() using existing application instance");
         }
 
         // static::$app->bind(SwServer::class, $server); // Bind server instance to container
@@ -59,11 +59,6 @@ class HttpServer
     {
         Coroutine::create(function() use ($request, $response) {
             static::setContext($request);
-
-            error_log("HttpServer::onRequest() handling request: " .
-                $request->server['request_method'] . ' ' .
-                $request->server['request_uri']);
-
 
             (new RequestCallback(
                 static::$app

@@ -43,7 +43,6 @@ class ConsoleServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        error_log('ConsoleServiceProvider register()');
         // Register Symfony Console application
         $this->singleton(ConsoleApplication::class, function (Container $container) {
             $version = $this->getFrameworkVersion($container);

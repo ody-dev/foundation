@@ -24,7 +24,7 @@ class RouteRegistry
             return;
         }
 
-        error_log("RouteRegistry: Loading routes on demand");
+        logger()->debug("RouteRegistry: Loading routes on demand");
 
         $routesPath = base_path('routes');
 
@@ -51,7 +51,7 @@ class RouteRegistry
 
         // Mark routes as loaded in the router if provided
         if ($router !== null && method_exists($router, 'markRoutesLoaded')) {
-            error_log("RouteRegistry loadRoutesIneeded; router->markRoutesLoaded()");
+            logger()->debug("RouteRegistry loadRoutesIfneeded; router->markRoutesLoaded()");
             $router->markRoutesLoaded();
         }
     }
@@ -65,7 +65,7 @@ class RouteRegistry
             return;
         }
 
-        error_log("RouteRegistry: Loading routes file: {$file}");
+        logger()->debug("RouteRegistry: Loading routes file: {$file}");
         self::$loadedFiles[] = $file;
 
         // Simply include the file

@@ -75,8 +75,6 @@ class ServeCommand extends Command
             $router->markRoutesAsRegistered();
         }
 
-        error_log("ServeCommand handle(): bootstrapping & starting swoole http");
-
         // Start the server
         HttpServer::start(
             ServerManager::init(ServerType::HTTP_SERVER) // ServerType::WS_SERVER to start a websocket server

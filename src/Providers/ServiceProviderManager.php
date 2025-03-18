@@ -89,7 +89,6 @@ class ServiceProviderManager
     {
         // Convert string provider to instance
         $providerName = is_string($provider) ? $provider : get_class($provider);
-        error_log("ServiceProvider registering: {$providerName}");
 
         // Convert string provider to instance
         if (is_string($provider)) {

@@ -10,7 +10,7 @@
 namespace Ody\Foundation;
 
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\MiddlewarePipeline;
+use Ody\Foundation\Middleware\MiddlewareDispatcher;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
 use Ody\Foundation\Middleware\TerminatingMiddlewareInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -64,12 +64,16 @@ class MiddlewareManager
         $this->container = $container;
         $this->logger = $logger ?? new NullLogger();
 
-        // Create the middleware registry
-        $this->registry = new Middleware\MiddlewareRegistry(
-            $container,
-            $logger,
-            $collectStats
-        );
+        // Use the registry from the container if available, otherwise create a new one
+        if ($container->has(MiddlewareRegistry::class)) {
+            $this->registry = $container->make(MiddlewareRegistry::class);
+        } else {
+            $this->registry = new Middleware\MiddlewareRegistry(
+                $container,
+                $logger,
+                $collectStats
+            );
+        }
     }
 
     /**
@@ -91,10 +95,10 @@ class MiddlewareManager
         $this->logger->debug("Processing request through middleware: {$method} {$path}");
 
         // Build the middleware pipeline for this route
-        $pipeline = $this->buildPipeline($method, $path, $finalHandler);
+        $dispatcher = $this->createDispatcher($method, $path, $finalHandler);
 
         // Process the request through the pipeline
-        return $pipeline->handle($request);
+        return $dispatcher->handle($request);
     }
 
     /**
@@ -103,13 +107,13 @@ class MiddlewareManager
      * @param string $method HTTP method
      * @param string $path Route path
      * @param callable|RequestHandlerInterface $finalHandler
-     * @return MiddlewarePipeline
+     * @return MiddlewareDispatcher
      */
-    public function buildPipeline(
+    public function createDispatcher(
         string $method,
         string $path,
         callable|RequestHandlerInterface $finalHandler
-    ): MiddlewarePipeline
+    ): MiddlewareDispatcher
     {
         // Get middleware for this route
         $middlewareList = $this->registry->buildPipeline($method, $path);
@@ -123,13 +127,17 @@ class MiddlewareManager
             'path' => $path
         ]);
 
-        // Create and return the pipeline
-        return new MiddlewarePipeline(
-            $this->registry,
-            $middlewareList,
+        // Create the dispatcher
+        $dispatcher = new MiddlewareDispatcher(
+            $this->container,
             $finalHandler,
             $this->logger
         );
+
+        // Add all middleware to the dispatcher
+        $dispatcher->addMultiple($middlewareList);
+
+        return $dispatcher;
     }
 
     /**
@@ -152,8 +160,9 @@ class MiddlewareManager
                     // Otherwise, resolve it from container or instantiate it
                     if (is_string($middleware)) {
                         // Check if it's a named middleware first
-                        if (isset($this->namedMiddleware[$middleware])) {
-                            $middleware = $this->namedMiddleware[$middleware];
+                        $namedMiddleware = $this->registry->getNamedMiddleware();
+                        if (isset($namedMiddleware[$middleware])) {
+                            $middleware = $namedMiddleware[$middleware];
                         }
 
                         // Resolve from container
@@ -250,6 +259,7 @@ class MiddlewareManager
     public function registerNamedMiddleware(array $namedMiddleware): self
     {
         $this->registry->registerNamedMiddleware($namedMiddleware);
+
         return $this;
     }
 

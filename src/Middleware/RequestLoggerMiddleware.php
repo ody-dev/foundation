@@ -72,5 +72,10 @@ class RequestLoggerMiddleware implements MiddlewareInterface, TerminatingMiddlew
         // - Update usage statistics
         // - Send metrics to monitoring systems
         // - Perform cleanup
+
+//        \Swoole\Coroutine::defer(function() use ($request, $response) {
+//            // Perform async operations here
+//            // This will run after all other code in the current coroutine
+//        });
     }
 }

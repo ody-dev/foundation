@@ -78,7 +78,7 @@ class Router
         // IMPORTANT: Also store in static property
         self::$allRoutes[] = ['GET', $path, $handler];
 
-        error_log("Router: Registered GET route: {$path}");
+        logger()->debug("Router: Registered GET route: {$path}");
 
         return $route;
     }
@@ -95,7 +95,7 @@ class Router
         $route = new Route('POST', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['POST', $path, $handler];
         self::$allRoutes[] = ['POST', $path, $handler];
-        error_log("Router: Registered POST route: {$path}");
+        logger()->debug("Router: Registered POST route: {$path}");
         return $route;
     }
 
@@ -111,7 +111,7 @@ class Router
         $route = new Route('PUT', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['PUT', $path, $handler];
         self::$allRoutes[] = ['PUT', $path, $handler];
-        error_log("Router: Registered PUT route: {$path}");
+        logger()->debug("Router: Registered PUT route: {$path}");
         return $route;
     }
 
@@ -127,7 +127,7 @@ class Router
         $route = new Route('DELETE', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['DELETE', $path, $handler];
         self::$allRoutes[] = ['DELETE', $path, $handler];
-        error_log("Router: Registered DELETE route: {$path}");
+        logger()->debug("Router: Registered DELETE route: {$path}");
         return $route;
     }
 
@@ -143,7 +143,7 @@ class Router
         $route = new Route('PATCH', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['PATCH', $path, $handler];
         self::$allRoutes[] = ['PATCH', $path, $handler];
-        error_log("Router: Registered PATCH route: {$path}");
+        logger()->debug("Router: Registered PATCH route: {$path}");
         return $route;
     }
 
@@ -159,7 +159,7 @@ class Router
         $route = new Route('OPTIONS', $path, $handler, $this->middlewareManager);
         $this->routes[] = ['OPTIONS', $path, $handler];
         self::$allRoutes[] = ['OPTIONS', $path, $handler];
-        error_log("Router: Registered OPTIONS route: {$path}");
+        logger()->debug("Router: Registered OPTIONS route: {$path}");
         return $route;
     }
 
@@ -189,9 +189,9 @@ class Router
             $path = rtrim($path, '/');
         }
 
-        error_log("Router::match() {$method} {$path}");
+        logger()->debug("Router::match() {$method} {$path}");
 
-        error_log("Router::match() {$method} {$path} (routes: " . count($this->routes) . ", static routes: " . count(self::$allRoutes) . ")");
+        logger()->debug("Router::match() {$method} {$path} (routes: " . count($this->routes) . ", static routes: " . count(self::$allRoutes) . ")");
 
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
@@ -210,7 +210,7 @@ class Router
                     foreach ($this->routes as $route) {
                         $registeredRoutes[] = $route[0] . ' ' . $route[1];
                     }
-                    error_log("Router: No route found for {$method} {$path}. Routes count: " . count($registeredRoutes));
+                    logger()->debug("Router: No route found for {$method} {$path}. Routes count: " . count($registeredRoutes));
                 }
                 return ['status' => 'not_found'];
 
@@ -222,7 +222,7 @@ class Router
 
             case Dispatcher::FOUND:
                 $handler = $routeInfo[1];
-                error_log("Router: Route found for {$method} {$path}");
+                logger()->debug("Router: Route found for {$method} {$path}");
 
                 // Try to convert string controller@method to callable
                 $callable = $this->resolveController($handler);
@@ -373,10 +373,7 @@ class Router
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
             $this->routes = self::$allRoutes;
-            error_log("Router::createDispatcher() Restored " . count(self::$allRoutes) . " routes from static storage");
         }
-
-        error_log("Router::createDispatcher() Creating dispatcher with " . count($this->routes) . " routes");
 
         return simpleDispatcher(function (RouteCollector $r) {
             foreach ($this->routes as $route) {

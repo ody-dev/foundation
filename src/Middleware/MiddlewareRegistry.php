@@ -159,7 +159,7 @@ class MiddlewareRegistry
                 break;
         }
 
-        $this->logger->debug("Registered middleware: {$id}", ['type' => $options['type']]);
+        logger()->debug("Registered middleware: {$id}", ['type' => $options['type']]);
 
         return $this;
     }
@@ -285,7 +285,7 @@ class MiddlewareRegistry
         $middlewareList = array_values($this->global);
 
         // Add route-specific middleware if any
-        $routeKey = $this->formatRouteKey($method, $path);
+        $routeKey = rtrim($this->formatRouteKey($method, $path), '/');
         if (isset($this->routes[$routeKey])) {
             $middlewareList = array_merge($middlewareList, array_values($this->routes[$routeKey]));
         }
@@ -311,22 +311,7 @@ class MiddlewareRegistry
                 if (isset($this->named[$middleware])) {
                     $namedMiddleware = $this->named[$middleware];
 
-                    // Handle case where named middleware is an array
-                    if (is_array($namedMiddleware) && !empty($namedMiddleware)) {
-                        var_dump($namedMiddleware);
-                        // If it's an array with a single item, use that item
-                        if (count($namedMiddleware) === 1) {
-                            $expanded[] = reset($namedMiddleware);
-                        } else {
-                            // Otherwise, process each item in the array
-                            foreach ($namedMiddleware as $item) {
-                                $expanded[] = $item;
-                            }
-                        }
-                    } else {
-                        // Handle regular named middleware
-                        $expanded[] = $namedMiddleware;
-                    }
+                    $expanded[] = $namedMiddleware;
                     continue;
                 }
 

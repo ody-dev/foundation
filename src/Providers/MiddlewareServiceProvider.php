@@ -29,34 +29,35 @@ class MiddlewareServiceProvider extends ServiceProvider
     {
         // Register MiddlewareRegistry as a singleton
         $this->singleton(MiddlewareRegistry::class, function (Container $container) {
-            $config = $container->make(Config::class);
             $logger = $container->make(LoggerInterface::class);
+            $config = $container->make(Config::class);
 
             // Get cache configuration
             $enableStats = $config->get('app.middleware.cache.stats', false);
 
-            // Create registry
-            $registry = new MiddlewareRegistry($container, $logger, $enableStats);
-
-            // Register middleware configuration
-            $middlewareConfig = $config->get('app.middleware', []);
-            if (is_array($middlewareConfig)) {
-                $registry->fromConfig($middlewareConfig);
-            }
-
-            return $registry;
+            // Create registry (without loading config yet)
+            return new MiddlewareRegistry($container, $logger, $enableStats);
         });
 
         // Register MiddlewareManager as a singleton
         $this->singleton(MiddlewareManager::class, function (Container $container) {
-            $config = $container->make(Config::class);
             $logger = $container->make(LoggerInterface::class);
+            $registry = $container->make(MiddlewareRegistry::class);
+            $config = $container->make(Config::class);
 
             // Get stats configuration
             $enableStats = $config->get('app.middleware.cache.stats', false);
 
-            // Create manager with registry
-            return new MiddlewareManager($container, $logger, $enableStats);
+            // Create manager with existing registry
+            $manager = new MiddlewareManager($container, $logger, $enableStats);
+
+            // Load configuration here - ONLY ONCE
+            $middlewareConfig = $config->get('app.middleware', []);
+            if (is_array($middlewareConfig)) {
+                $manager->registerFromConfig($middlewareConfig);
+            }
+
+            return $manager;
         });
 
         // Add middleware manager alias for easier access
