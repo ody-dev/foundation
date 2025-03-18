@@ -12,8 +12,10 @@ namespace Ody\Foundation;
 use Ody\Container\Container;
 use Ody\Foundation\Middleware\MiddlewarePipeline;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
+use Ody\Foundation\Middleware\TerminatingMiddlewareInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -91,9 +93,6 @@ class MiddlewareManager
         // Build the middleware pipeline for this route
         $pipeline = $this->buildPipeline($method, $path, $finalHandler);
 
-//        // Track terminating middleware for this request
-//        $this->collectTerminatingMiddleware($middlewareList);
-
         // Process the request through the pipeline
         return $pipeline->handle($request);
     }
@@ -106,10 +105,17 @@ class MiddlewareManager
      * @param callable|RequestHandlerInterface $finalHandler
      * @return MiddlewarePipeline
      */
-    public function buildPipeline(string $method, string $path, $finalHandler): MiddlewarePipeline
+    public function buildPipeline(
+        string $method,
+        string $path,
+        callable|RequestHandlerInterface $finalHandler
+    ): MiddlewarePipeline
     {
         // Get middleware for this route
         $middlewareList = $this->registry->buildPipeline($method, $path);
+
+        // Track terminating middleware for this request
+        $this->collectTerminatingMiddleware($middlewareList);
 
         $this->logger->debug("Built middleware pipeline", [
             'count' => count($middlewareList),
@@ -136,7 +142,28 @@ class MiddlewareManager
     {
         foreach ($middlewareList as $middleware) {
             try {
-                $instance = $this->resolutionCache->resolve($middleware);
+                // First, try to get a resolved instance
+                $instance = null;
+
+                // If it's already a usable middleware instance, use it directly
+                if ($middleware instanceof MiddlewareInterface) {
+                    $instance = $middleware;
+                } else {
+                    // Otherwise, resolve it from container or instantiate it
+                    if (is_string($middleware)) {
+                        // Check if it's a named middleware first
+                        if (isset($this->namedMiddleware[$middleware])) {
+                            $middleware = $this->namedMiddleware[$middleware];
+                        }
+
+                        // Resolve from container
+                        if ($this->container->has($middleware)) {
+                            $instance = $this->container->make($middleware);
+                        } else if (class_exists($middleware)) {
+                            $instance = new $middleware();
+                        }
+                    }
+                }
 
                 if ($instance instanceof TerminatingMiddlewareInterface) {
                     $this->terminatingMiddleware[] = $instance;
