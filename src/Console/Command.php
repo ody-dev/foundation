@@ -120,7 +120,7 @@ abstract class Command extends SymfonyCommand
         $this->initializeContainer();
 
         try {
-            $result = $this->handle();
+            $result = $this->handle($input, $output);
             return is_int($result) ? $result : self::SUCCESS;
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
@@ -172,7 +172,7 @@ abstract class Command extends SymfonyCommand
      *
      * @return int
      */
-    abstract protected function handle(): int;
+    abstract protected function handle(InputInterface $input, OutputInterface $output): int;
 
     /**
      * Ask a question.
