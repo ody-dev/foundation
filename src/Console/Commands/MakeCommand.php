@@ -11,14 +11,16 @@ namespace Ody\Foundation\Console\Commands;
 
 use Ody\Foundation\Console\Command;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * MakeCommandCommand
  *
  * Create a new console command
  */
-class MakeCommandCommand extends Command
+class MakeCommand extends Command
 {
     /**
      * The console command name.
@@ -53,7 +55,7 @@ class MakeCommandCommand extends Command
      *
      * @return int
      */
-    protected function handle(): int
+    protected function handle(InputInterface $input, OutputInterface $output): int
     {
         $className = $this->input->getArgument('name');
         $commandName = $this->input->getOption('command') ?: $this->convertClassToCommandName($className);

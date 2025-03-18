@@ -50,7 +50,7 @@ class ServeCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('watch', 'w', InputOption::VALUE_OPTIONAL, 'Enable hot reloading on updates', '127.0.0.1');
+            ->addOption('watch', 'w', InputOption::VALUE_OPTIONAL, 'Enable hot reloading on code changes', '127.0.0.1');
     }
 
     /**
@@ -83,6 +83,7 @@ class ServeCommand extends Command
                 ->createServer($config)
                 ->setServerConfig($config['additional'])
                 ->registerCallbacks($config['callbacks'])
+                ->setWatcher(true, $config['watch'], $serverState)
                 ->getServerInstance()
         );
 

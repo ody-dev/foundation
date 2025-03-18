@@ -10,6 +10,8 @@
 namespace Ody\Foundation\Console\Commands;
 
 use Ody\Foundation\Console\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * TestCommand
@@ -37,7 +39,7 @@ class TestCommand extends Command
      *
      * @return int
      */
-    protected function handle(): int
+    protected function handle(InputInterface $input, OutputInterface $output): int
     {
         $this->success('Console system is working correctly!');
 

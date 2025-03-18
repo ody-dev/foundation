@@ -11,6 +11,8 @@ namespace Ody\Foundation\Console\Commands;
 
 use Ody\Foundation\Console\Command;
 use Ody\Support\Config;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * EnvironmentCommand
@@ -38,7 +40,7 @@ class EnvironmentCommand extends Command
      *
      * @return int
      */
-    protected function handle(): int
+    protected function handle(InputInterface $input, OutputInterface $output): int
     {
         $this->displayEnvironmentInfo();
         $this->displayPhpInfo();
