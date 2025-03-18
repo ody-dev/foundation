@@ -48,6 +48,8 @@ class MiddlewareResolutionCache
      */
     protected bool $collectStats;
 
+    private $maxCacheSize = 100;
+
     /**
      * Constructor
      *
@@ -79,6 +81,12 @@ class MiddlewareResolutionCache
         if ($middleware instanceof MiddlewareInterface ||
             (is_callable($middleware) && !is_string($middleware))) {
             return $middleware;
+        }
+
+        // Check cache size and prune if needed
+        if (count($this->resolvedMiddleware) > $this->maxCacheSize) {
+            // Remove the least used entries
+            array_shift($this->resolvedMiddleware);
         }
 
         // Generate a cache key for the middleware
