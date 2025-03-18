@@ -50,7 +50,9 @@ class ServeCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('watch', 'w', InputOption::VALUE_OPTIONAL, 'Enable hot reloading on code changes', '127.0.0.1');
+            ->addOption('watch', 'w', InputOption::VALUE_NONE, 'Enable hot reloading on code changes')
+            ->addOption('stop', 's', InputOption::VALUE_NONE, 'Stops a running server')
+            ->addOption('reload', 'r', InputOption::VALUE_NONE, 'Reloads a running server');
     }
 
     /**
@@ -62,8 +64,16 @@ class ServeCommand extends Command
     {
         // Get server configuration
         $config = config('server');
-
         $serverState = HttpServerState::getInstance();
+
+        if ($input->getOption('stop')) {
+            return $this->stopServer($serverState, $input, $output);
+        }
+
+        if ($input->getOption('reload')) {
+            return $this->reloadServer();
+        }
+
         if ($serverState->httpServerIsRunning()) {
             $this->handleRunningServer($input, $output);
         }
@@ -119,5 +129,58 @@ class ServeCommand extends Command
         $serverState->clearProcessIds();
 
         sleep(2);
+    }
+
+    private function stopServer($serverState, $input, $output): int
+    {
+        if (!$serverState->httpServerIsRunning()) {
+            logger()->error('server is not running...');
+            return self::FAILURE;
+        }
+
+        $helper = $this->getHelper('question');
+        $question = new ChoiceQuestion(
+            'Do you want the server to terminate? (defaults to no)',
+            ['no', 'yes'],
+            0
+        );
+        $question->setErrorMessage('Your selection is invalid.');
+
+        if ($helper->ask($input, $output, $question) !== 'yes') {
+            return self::FAILURE;
+        }
+
+        $serverState->killProcesses([
+            $serverState->getMasterProcessId(),
+            $serverState->getManagerProcessId(),
+            $serverState->getWatcherProcessId(),
+            ...$serverState->getWorkerProcessIds()
+        ]);
+
+        $serverState->clearProcessIds();
+        sleep(2);
+
+        logger()->info('Server stopped successfully');
+
+        return self::SUCCESS;
+    }
+
+    private function reloadServer()
+    {
+        $serverState = HttpServerState::getInstance();
+
+        if (!$serverState->httpServerIsRunning()) {
+            logger()->info('Server is not running...');
+            return self::FAILURE;
+        }
+
+        $serverState->reloadProcesses([
+            $serverState->getMasterProcessId(),
+            $serverState->getManagerProcessId(),
+            ...$serverState->getWorkerProcessIds()
+        ]);
+
+        logger()->info('reloading server...');
+        return self::SUCCESS;
     }
 }
