@@ -9,6 +9,8 @@
 
 namespace Ody\Foundation;
 
+use Ody\Foundation\Middleware\MiddlewareConfig;
+
 class Route
 {
     /**
@@ -60,18 +62,80 @@ class Route
     /**
      * Add middleware to the route
      *
-     * @param mixed ...$middleware One or more middleware classes, instances, or callables
+     * Supports multiple formats:
+     * - middleware('Class1', 'Class2')          // Multiple middleware classes
+     * - middleware('Class1', ['param' => 'value']) // Single middleware with parameters
+     * - middleware([
+     *     'Class1',
+     *     ['Class2', ['param' => 'value']]      // Array of middleware with and without params
+     *   ])
+     *
+     * @param mixed ...$args One or more middleware classes, instances, or callables
      * @return self
      */
-    public function middleware(...$middleware): self
+    public function middleware(...$args): self
     {
-        foreach ($middleware as $m) {
-            // Store the middleware reference
-            $this->middlewareList[] = $m;
-
-            // Register with the middleware manager using the simplified registry
-            $this->middlewareManager->addForRoute($this->method, $this->path, $m);
+        // If there are exactly 2 args and the second is an array, it's a middleware with params
+        if (count($args) === 2 && is_string($args[0]) && is_array($args[1])) {
+            return $this->addMiddlewareWithParams($args[0], $args[1]);
         }
+
+        // Process each argument
+        foreach ($args as $m) {
+            // If it's an array with a class name and parameters
+            if (is_array($m) && count($m) === 2 && is_string($m[0]) && is_array($m[1])) {
+                $this->addMiddlewareWithParams($m[0], $m[1]);
+            } // Process middleware array
+            elseif (is_array($m) && !is_callable($m)) {
+                foreach ($m as $subM) {
+                    if (is_array($subM) && count($subM) === 2 && is_string($subM[0]) && is_array($subM[1])) {
+                        $this->addMiddlewareWithParams($subM[0], $subM[1]);
+                    } else {
+                        $this->addMiddleware($subM);
+                    }
+                }
+            } // Regular middleware
+            else {
+                $this->addMiddleware($m);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Internal method to add a single middleware
+     *
+     * @param mixed $middleware
+     * @return self
+     */
+    protected function addMiddleware($middleware): self
+    {
+        // Store the middleware reference
+        $this->middlewareList[] = $middleware;
+
+        // Register with the middleware manager
+        $this->middlewareManager->addForRoute($this->method, $this->path, $middleware);
+
+        return $this;
+    }
+
+    /**
+     * Internal method to add a middleware with parameters
+     *
+     * @param string $middleware Middleware class name
+     * @param array $parameters Parameters to pass to middleware constructor
+     * @return self
+     */
+    protected function addMiddlewareWithParams(string $middleware, array $parameters): self
+    {
+        $config = new MiddlewareConfig($middleware, $parameters);
+
+        // Store the middleware reference
+        $this->middlewareList[] = $config;
+
+        // Register with the middleware manager
+        $this->middlewareManager->addForRoute($this->method, $this->path, $config);
 
         return $this;
     }
