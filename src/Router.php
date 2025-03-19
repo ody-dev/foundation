@@ -4,6 +4,9 @@ namespace Ody\Foundation;
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Ody\Container\Container;
+use Ody\Foundation\Middleware\MiddlewarePipeline;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use function FastRoute\simpleDispatcher;
 
 class Router
@@ -191,8 +194,6 @@ class Router
 
         logger()->debug("Router::match() {$method} {$path}");
 
-        logger()->debug("Router::match() {$method} {$path} (routes: " . count($this->routes) . ", static routes: " . count(self::$allRoutes) . ")");
-
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
             $this->routes = self::$allRoutes;
@@ -227,15 +228,136 @@ class Router
                 // Try to convert string controller@method to callable
                 $callable = $this->resolveController($handler);
 
+                // Detect controller class and method for attribute middleware resolution
+                $controllerInfo = $this->extractControllerInfo($handler, $callable);
+
                 return [
                     'status' => 'found',
                     'handler' => $callable,
                     'originalHandler' => $handler, // Store original for reference
-                    'vars' => $routeInfo[2]
+                    'vars' => $routeInfo[2],
+                    'controller' => $controllerInfo['controller'] ?? null,
+                    'action' => $controllerInfo['action'] ?? null
                 ];
         }
 
         return ['status' => 'error'];
+    }
+
+    /**
+     * Extract controller class and method information from a handler
+     *
+     * @param mixed $originalHandler The original handler (string or callable)
+     * @param mixed $resolvedHandler The resolved callable handler
+     * @return array Controller info with 'controller' and 'action' keys
+     */
+    protected function extractControllerInfo($originalHandler, $resolvedHandler): array
+    {
+        $info = [
+            'controller' => null,
+            'action' => null
+        ];
+
+        // Case 1: String in 'Controller@method' format
+        if (is_string($originalHandler) && strpos($originalHandler, '@') !== false) {
+            list($controller, $method) = explode('@', $originalHandler, 2);
+            $info['controller'] = $controller;
+            $info['action'] = $method;
+            return $info;
+        }
+
+        // Case 2: Already resolved array callable [ControllerInstance, 'method']
+        if (is_array($resolvedHandler) && count($resolvedHandler) === 2) {
+            $controller = $resolvedHandler[0];
+            $method = $resolvedHandler[1];
+
+            if (is_object($controller)) {
+                $info['controller'] = get_class($controller);
+                $info['action'] = $method;
+                return $info;
+            }
+        }
+
+        // Case 3: Try to infer from closure or other callable
+        // This might not be possible in many cases
+
+        return $info;
+    }
+
+    /**
+     * Dispatch a request through the router and middleware pipeline
+     *
+     * @param ServerRequestInterface $request
+     * @param callable $errorHandler Function to handle routing errors
+     * @return ResponseInterface
+     */
+    public function dispatch(ServerRequestInterface $request, callable $errorHandler): ResponseInterface
+    {
+        $method = $request->getMethod();
+        $path = $request->getUri()->getPath();
+
+        // Match the route
+        $routeInfo = $this->match($method, $path);
+
+        // Handle error cases
+        if ($routeInfo['status'] !== 'found') {
+            return $errorHandler($request, $routeInfo);
+        }
+
+        // Extract route parameters
+        $params = $routeInfo['vars'] ?? [];
+
+        // Add route parameters to the request
+        foreach ($params as $name => $value) {
+            $request = $request->withAttribute($name, $value);
+        }
+
+        // Build middleware stack
+        $middlewareStack = [];
+
+        if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
+            // If we have controller info, use attribute-based middleware
+            $middlewareStack = $this->middlewareManager->getStackForControllerRoute(
+                $method,
+                $path,
+                $routeInfo['controller'],
+                $routeInfo['action']
+            );
+        } else {
+            // Otherwise use route-based middleware only
+            $middlewareStack = $this->middlewareManager->getStackForRoute($method, $path);
+        }
+
+        // Create the final handler (route handler)
+        $finalHandler = function (ServerRequestInterface $request) use ($routeInfo) {
+            $handler = $routeInfo['handler'];
+            return call_user_func($handler, $request);
+        };
+
+        // Create a middleware pipeline
+        $pipeline = $this->createMiddlewarePipeline($middlewareStack, $finalHandler);
+
+        // Process the request through the middleware pipeline
+        return $pipeline->handle($request);
+    }
+
+    /**
+     * Create a middleware pipeline
+     *
+     * @param array $middlewareStack
+     * @param callable $finalHandler
+     * @return MiddlewarePipeline
+     */
+    protected function createMiddlewarePipeline(array $middlewareStack, callable $finalHandler): MiddlewarePipeline
+    {
+        $registry = $this->middlewareManager->getRegistry();
+
+        return new MiddlewarePipeline(
+            $registry,
+            $middlewareStack,
+            $finalHandler,
+            $this->container->make('logger')
+        );
     }
 
     /**

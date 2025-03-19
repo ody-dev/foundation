@@ -10,9 +10,9 @@
 namespace Ody\Foundation;
 
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\MiddlewareDispatcher;
+use Ody\Foundation\Middleware\AttributeResolver;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
-use Ody\Foundation\Middleware\TerminatingMiddlewareInterface;
+use Ody\Foundation\Middleware\MiddlewareResolutionCache;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -21,10 +21,9 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Application Middleware Manager
+ * Middleware Manager
  *
- * Simplified facade that coordinates between the MiddlewareRegistry
- * and MiddlewarePipeline to provide a clean interface for the Application.
+ * Manages middleware registration and execution
  */
 class MiddlewareManager
 {
@@ -39,155 +38,178 @@ class MiddlewareManager
     protected LoggerInterface $logger;
 
     /**
-     * @var MiddlewareRegistry
+     * @var MiddlewareRegistry|null
      */
-    protected MiddlewareRegistry $registry;
+    protected ?MiddlewareRegistry $registry = null;
 
     /**
-     * @var array Middleware instances that implement TerminatingMiddlewareInterface
+     * @var MiddlewareResolutionCache|null
      */
-    protected array $terminatingMiddleware = [];
+    protected ?MiddlewareResolutionCache $resolutionCache = null;
+
+    /**
+     * @var AttributeResolver|null
+     */
+    protected ?AttributeResolver $attributeResolver = null;
+
+    /**
+     * @var bool Whether to collect cache statistics
+     */
+    protected bool $collectStats;
 
     /**
      * Constructor
      *
      * @param Container $container
      * @param LoggerInterface|null $logger
-     * @param bool $collectStats Whether to collect middleware resolution stats
+     * @param bool $collectStats Whether to collect cache statistics
      */
     public function __construct(
         Container $container,
         ?LoggerInterface $logger = null,
-        bool      $collectStats = false
-    )
-    {
+        bool $collectStats = false
+    ) {
         $this->container = $container;
         $this->logger = $logger ?? new NullLogger();
+        $this->collectStats = $collectStats;
+    }
 
-        // Use the registry from the container if available, otherwise create a new one
-        if ($container->has(MiddlewareRegistry::class)) {
-            $this->registry = $container->make(MiddlewareRegistry::class);
-        } else {
-            $this->registry = new Middleware\MiddlewareRegistry(
-                $container,
-                $logger,
-                $collectStats
+    /**
+     * Get the middleware registry
+     *
+     * @return MiddlewareRegistry
+     */
+    public function getRegistry(): MiddlewareRegistry
+    {
+        if (!$this->registry) {
+            $this->registry = $this->container->has(MiddlewareRegistry::class)
+                ? $this->container->make(MiddlewareRegistry::class)
+                : new MiddlewareRegistry($this->container, $this->logger, $this->collectStats);
+        }
+
+        return $this->registry;
+    }
+
+    /**
+     * Get the middleware resolution cache
+     *
+     * @return MiddlewareResolutionCache
+     */
+    protected function getResolutionCache(): MiddlewareResolutionCache
+    {
+        if (!$this->resolutionCache) {
+            $this->resolutionCache = new MiddlewareResolutionCache(
+                $this->container,
+                $this->logger,
+                $this->collectStats
             );
         }
+
+        return $this->resolutionCache;
     }
 
     /**
-     * Process a request through middleware
+     * Get the attribute resolver
      *
-     * @param ServerRequestInterface $request
-     * @param string $method HTTP method
-     * @param string $path Route path
-     * @param callable|RequestHandlerInterface $finalHandler
-     * @return ResponseInterface
+     * @return AttributeResolver
      */
-    public function process(
-        ServerRequestInterface $request,
-        string                 $method,
-        string                 $path,
-                               $finalHandler
-    ): ResponseInterface
+    public function getAttributeResolver(): AttributeResolver
     {
-        $this->logger->debug("Processing request through middleware: {$method} {$path}");
+        if (!$this->attributeResolver) {
+            $this->attributeResolver = new AttributeResolver($this->logger);
+        }
 
-        // Build the middleware pipeline for this route
-        $dispatcher = $this->createDispatcher($method, $path, $finalHandler);
-
-        // Process the request through the pipeline
-        return $dispatcher->handle($request);
+        return $this->attributeResolver;
     }
 
     /**
-     * Build a middleware pipeline for a specific route
+     * Register middleware from configuration
+     *
+     * @param array $config
+     * @return self
+     */
+    public function registerFromConfig(array $config): self
+    {
+        $this->getRegistry()->fromConfig($config);
+        return $this;
+    }
+
+    /**
+     * Add middleware for a specific route
+     *
+     * @param string $method
+     * @param string $path
+     * @param mixed $middleware
+     * @return self
+     */
+    public function addForRoute(string $method, string $path, $middleware): self
+    {
+        $this->getRegistry()->forRoute($method, $path, $middleware);
+        return $this;
+    }
+
+    /**
+     * Get middleware stack for a route
+     *
+     * @param string $method
+     * @param string $path
+     * @return array
+     */
+    public function getStackForRoute(string $method, string $path): array
+    {
+        return $this->getRegistry()->buildPipeline($method, $path);
+    }
+
+    /**
+     * Create a middleware pipeline for a controller-based route
      *
      * @param string $method HTTP method
      * @param string $path Route path
-     * @param callable|RequestHandlerInterface $finalHandler
-     * @return MiddlewareDispatcher
+     * @param string|object $controller Controller class or instance
+     * @param string $action Controller method name
+     * @return array Combined middleware stack
      */
-    public function createDispatcher(
+    public function getStackForControllerRoute(
         string $method,
         string $path,
-        callable|RequestHandlerInterface $finalHandler
-    ): MiddlewareDispatcher
-    {
-        // Get middleware for this route
-        $middlewareList = $this->registry->buildPipeline($method, $path);
+               $controller,
+        string $action
+    ): array {
+        // Get route middleware from the registry
+        $routeMiddleware = $this->getRegistry()->buildPipeline($method, $path);
 
-        // Track terminating middleware for this request
-        $this->collectTerminatingMiddleware($middlewareList);
+        // Get attribute-based middleware for the controller and method
+        $attributeMiddleware = $this->getAttributeResolver()->getMiddleware($controller, $action);
 
-        $this->logger->debug("Built middleware pipeline", [
-            'count' => count($middlewareList),
-            'method' => $method,
-            'path' => $path
-        ]);
-
-        // Create the dispatcher
-        $dispatcher = new MiddlewareDispatcher(
-            $this->container,
-            $finalHandler,
-            $this->logger
-        );
-
-        // Add all middleware to the dispatcher
-        $dispatcher->addMultiple($middlewareList);
-
-        return $dispatcher;
-    }
-
-    /**
-     * Collect middleware instances that implement TerminatingMiddlewareInterface
-     *
-     * @param array $middlewareList
-     * @return void
-     */
-    protected function collectTerminatingMiddleware(array $middlewareList): void
-    {
-        foreach ($middlewareList as $middleware) {
-            try {
-                // First, try to get a resolved instance
-                $instance = null;
-
-                // If it's already a usable middleware instance, use it directly
-                if ($middleware instanceof MiddlewareInterface) {
-                    $instance = $middleware;
-                } else {
-                    // Otherwise, resolve it from container or instantiate it
-                    if (is_string($middleware)) {
-                        // Check if it's a named middleware first
-                        $namedMiddleware = $this->registry->getNamedMiddleware();
-                        if (isset($namedMiddleware[$middleware])) {
-                            $middleware = $namedMiddleware[$middleware];
-                        }
-
-                        // Resolve from container
-                        if ($this->container->has($middleware)) {
-                            $instance = $this->container->make($middleware);
-                        } else if (class_exists($middleware)) {
-                            $instance = new $middleware();
-                        }
-                    }
-                }
-
-                if ($instance instanceof TerminatingMiddlewareInterface) {
-                    $this->terminatingMiddleware[] = $instance;
-                }
-            } catch (\Throwable $e) {
-                $this->logger->warning("Failed to resolve terminating middleware", [
-                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
-                    'error' => $e->getMessage()
-                ]);
+        // Convert attribute middleware format to registry format
+        $normalizedAttributeMiddleware = [];
+        foreach ($attributeMiddleware as $middleware) {
+            if (isset($middleware['class'])) {
+                // For class-based middleware
+                $normalizedAttributeMiddleware[] = $middleware['class'];
+            } else if (isset($middleware['group'])) {
+                // For group-based middleware
+                $normalizedAttributeMiddleware[] = $middleware['group'];
             }
         }
+
+        // Merge the middleware stacks (attribute middleware applied after route middleware)
+        return array_merge($routeMiddleware, $normalizedAttributeMiddleware);
     }
 
     /**
-     * Run terminating middleware after the response has been sent
+     * Resolve a middleware to an instance
+     *
+     * @param mixed $middleware
+     * @return MiddlewareInterface
+     */
+    public function resolveMiddleware($middleware): MiddlewareInterface
+    {
+        return $this->getResolutionCache()->resolve($middleware);
+    }
+
+    /**
+     * Handle terminating middleware
      *
      * @param ServerRequestInterface $request
      * @param ResponseInterface $response
@@ -195,139 +217,7 @@ class MiddlewareManager
      */
     public function terminate(ServerRequestInterface $request, ResponseInterface $response): void
     {
-        foreach ($this->terminatingMiddleware as $middleware) {
-            try {
-                $middleware->terminate($request, $response);
-            } catch (\Throwable $e) {
-                $this->logger->error("Error in terminating middleware", [
-                    'middleware' => get_class($middleware),
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-            }
-        }
-
-        // Clear terminating middleware for this request
-        $this->terminatingMiddleware = [];
-    }
-
-    /**
-     * Add a global middleware
-     *
-     * @param mixed $middleware
-     * @return self
-     */
-    public function addGlobal($middleware): self
-    {
-        $this->registry->global($middleware);
-        return $this;
-    }
-
-    /**
-     * Add middleware for a specific route
-     *
-     * @param string $method HTTP method
-     * @param string $path Route path
-     * @param mixed $middleware
-     * @return self
-     */
-    public function addForRoute(string $method, string $path, $middleware): self
-    {
-        $this->registry->forRoute($method, $path, $middleware);
-        return $this;
-    }
-
-    /**
-     * Register a named middleware
-     *
-     * @param string $name
-     * @param mixed $middleware
-     * @return self
-     */
-    public function registerNamed(string $name, $middleware): self
-    {
-        $this->registry->name($name, $middleware);
-        return $this;
-    }
-
-    /**
-     * Register multiple named middleware
-     *
-     * @param array $namedMiddleware
-     * @return self
-     */
-    public function registerNamedMiddleware(array $namedMiddleware): self
-    {
-        $this->registry->registerNamedMiddleware($namedMiddleware);
-
-        return $this;
-    }
-
-    /**
-     * Register a middleware group
-     *
-     * @param string $name
-     * @param array $middleware
-     * @return self
-     */
-    public function registerGroup(string $name, array $middleware): self
-    {
-        $this->registry->group($name, $middleware);
-        return $this;
-    }
-
-    /**
-     * Register multiple middleware groups
-     *
-     * @param array $groups
-     * @return self
-     */
-    public function registerGroups(array $groups): self
-    {
-        $this->registry->registerGroups($groups);
-        return $this;
-    }
-
-    /**
-     * Register configuration from an array
-     *
-     * @param array $config
-     * @return self
-     */
-    public function registerFromConfig(array $config): self
-    {
-        $this->registry->fromConfig($config);
-        return $this;
-    }
-
-    /**
-     * Get middleware registry statistics
-     *
-     * @return array
-     */
-    public function getCacheStats(): array
-    {
-        return $this->registry->getCacheStats();
-    }
-
-    /**
-     * Clear the middleware cache
-     *
-     * @return self
-     */
-    public function clearCache(): self
-    {
-        $this->registry->clearCache();
-        return $this;
-    }
-
-    /**
-     * Get the underlying registry
-     *
-     * @return MiddlewareRegistry
-     */
-    public function getRegistry(): MiddlewareRegistry
-    {
-        return $this->registry;
+        // Handle terminating middleware execution here
+        // This would call terminate() on any middleware that implements TerminatingMiddlewareInterface
     }
 }

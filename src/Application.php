@@ -10,9 +10,12 @@
 namespace Ody\Foundation;
 
 use Ody\Container\Container;
+use Ody\Foundation\Http\ControllerDispatcher;
+use Ody\Foundation\Http\ControllerResolver;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
 use Ody\Foundation\Http\ResponseEmitter;
+use Ody\Foundation\Middleware\AttributeResolver;
 use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
@@ -65,6 +68,11 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * @var bool Whether the application has been bootstrapped
      */
     private bool $bootstrapped = false;
+
+    /**
+     * @var ControllerDispatcher|null
+     */
+    protected ?ControllerDispatcher $controllerDispatcher = null;
 
     /**
      * Core providers that must be registered in a specific order
@@ -130,7 +138,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         }
 
         $request = Request::createFromGlobals();
-        $response = $this->handleRequest($request);
+        $response = $this->handle($request);
         $this->getResponseEmitter()->emit($response);
 
         // Run terminating middleware after the response has been sent
@@ -205,73 +213,292 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         // Deprecated?
     }
 
+    /**
+     * Handle a request
+     *
+     * @param ServerRequestInterface $request
+     * @return ResponseInterface
+     */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        $response = $this->handleRequest($request);
+        try {
+            // Add the request to the container
+            $this->container->instance(ServerRequestInterface::class, $request);
 
-        /**
-         * This is to be in compliance with RFC 2616, Section 9.
-         * If the incoming request method is HEAD, we need to ensure that the response body
-         * is empty as the request may fall back on a GET route handler due to FastRoute's
-         * routing logic which could potentially append content to the response body
-         * https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9.4
-         */
-//        $method = strtoupper($request->getMethod());
-//        if ($method === 'HEAD') {
-//            $emptyBody = $this->responseFactory->createResponse()->getBody();
-//            return $response->withBody($emptyBody);
-//        }
+            // Match the route
+            $router = $this->container->make(Router::class);
+            $routeInfo = $router->match($request->getMethod(), $request->getUri()->getPath());
 
-        return $response;
+            // Handle route not found
+            if ($routeInfo['status'] === 'not_found') {
+                return $this->handleNotFound($request);
+            }
+
+            // Handle method not allowed
+            if ($routeInfo['status'] === 'method_not_allowed') {
+                return $this->handleMethodNotAllowed($request, $routeInfo['allowed_methods'] ?? []);
+            }
+
+            // If we found a route, get the handler
+            $handler = $routeInfo['handler'];
+            $routeParams = $routeInfo['vars'] ?? [];
+
+            // Add route parameters to the request
+            foreach ($routeParams as $name => $value) {
+                $request = $request->withAttribute($name, $value);
+            }
+
+            // Check if this is a controller route with attribute support
+            if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
+                return $this->dispatchToController($request, $routeInfo['controller'], $routeInfo['action'], $routeParams);
+            }
+
+            // Otherwise, handle as a regular route with regular middleware
+            return $this->dispatchWithMiddleware($request, $handler, $routeParams);
+
+        } catch (\Throwable $e) {
+            return $this->handleException($request, $e);
+        }
     }
 
     /**
-     * Handle HTTP request
+     * Dispatch a request to a controller
      *
-     * @param ServerRequestInterface|null $request
+     * @param ServerRequestInterface $request
+     * @param string $controller
+     * @param string $action
+     * @param array $routeParams
      * @return ResponseInterface
      */
-    public function handleRequest(?ServerRequestInterface $request = null): ResponseInterface
-    {
-        // Make sure application is bootstrapped
-        if (!$this->bootstrapped) {
-            $this->bootstrap();
-        }
+    protected function dispatchToController(
+        ServerRequestInterface $request,
+        string $controller,
+        string $action,
+        array $routeParams
+    ): ResponseInterface {
+        // Get or create the controller dispatcher
+        $dispatcher = $this->getControllerDispatcher();
 
-        // Create request from globals if not provided
-        $request = $request ?? Request::createFromGlobals();
-
-        // Log incoming request
-        $this->logRequest($request);
-
-        try {
-            // Find matching route
-            $routeInfo = $this->getRouter()->match(
-                $request->getMethod(),
-                $request->getUri()->getPath()
-            );
-
-            // Create final handler for the route
-            $finalHandler = $this->createRouteHandler($routeInfo);
-
-            // Process the request through middleware
-            $response = $this->getMiddlewareManager()->process(
-                $request,
-                $request->getMethod(),
-                $request->getUri()->getPath(),
-                $finalHandler
-            );
-
-            return $response;
-        } catch (\Throwable $e) {
-            $this->logger->error('Error handling request', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return $this->handleException($e);
-        }
+        // Dispatch the request to the controller
+        return $dispatcher->dispatch($request, $controller, $action, $routeParams);
     }
+
+    /**
+     * Dispatch a request with middleware
+     *
+     * @param ServerRequestInterface $request
+     * @param callable $handler
+     * @param array $routeParams
+     * @return ResponseInterface
+     */
+    protected function dispatchWithMiddleware(
+        ServerRequestInterface $request,
+        callable $handler,
+        array $routeParams
+    ): ResponseInterface {
+        // Get middleware stack for the route
+        $middlewareManager = $this->getMiddlewareManager();
+        $middlewareStack = $middlewareManager->getStackForRoute(
+            $request->getMethod(),
+            $request->getUri()->getPath()
+        );
+
+        // Create a middleware pipeline
+        $finalHandler = function (ServerRequestInterface $request) use ($handler, $routeParams) {
+            return call_user_func($handler, $request, $routeParams);
+        };
+
+        $registry = $middlewareManager->getRegistry();
+        $pipeline = new Middleware\MiddlewarePipeline(
+            $registry,
+            $middlewareStack,
+            $finalHandler,
+            $this->container->make('logger')
+        );
+
+        // Process the request through the middleware pipeline
+        return $pipeline->handle($request);
+    }
+
+    /**
+     * Get the controller dispatcher
+     *
+     * @return ControllerDispatcher
+     */
+    protected function getControllerDispatcher(): ControllerDispatcher
+    {
+        if (!$this->controllerDispatcher) {
+            $this->controllerDispatcher = new ControllerDispatcher(
+                $this->container,
+                new ControllerResolver($this->container, $this->container->make('logger')),
+                new AttributeResolver($this->container->make('logger')),
+                $this->getMiddlewareManager(),
+                $this->container->make('logger')
+            );
+        }
+
+        return $this->controllerDispatcher;
+    }
+
+    /**
+     * Get the middleware manager
+     *
+     * @return MiddlewareManager
+     */
+//    public function getMiddlewareManager(): MiddlewareManager
+//    {
+//        return $this->container->make(MiddlewareManager::class);
+//    }
+
+    /**
+     * Handle a route not found error
+     *
+     * @param ServerRequestInterface $request
+     * @return ResponseInterface
+     */
+//    protected function handleNotFound(ServerRequestInterface $request): ResponseInterface
+//    {
+//        return (new Response())
+//            ->status(404)
+//            ->json()
+//            ->withJson([
+//                'error' => 'Not Found',
+//                'message' => 'The requested resource was not found',
+//                'path' => $request->getUri()->getPath()
+//            ]);
+//    }
+
+    /**
+     * Handle a method not allowed error
+     *
+     * @param ServerRequestInterface $request
+     * @param array $allowedMethods
+     * @return ResponseInterface
+     */
+//    protected function handleMethodNotAllowed(ServerRequestInterface $request, array $allowedMethods): ResponseInterface
+//    {
+//        return (new Response())
+//            ->status(405)
+//            ->withHeader('Allow', implode(', ', $allowedMethods))
+//            ->json()
+//            ->withJson([
+//                'error' => 'Method Not Allowed',
+//                'message' => 'The requested method is not allowed for this resource',
+//                'allowed_methods' => $allowedMethods
+//            ]);
+//    }
+
+    /**
+     * Handle an exception
+     *
+     * @param ServerRequestInterface $request
+     * @param \Throwable $e
+     * @return ResponseInterface
+     */
+    protected function handleException(ServerRequestInterface $request, \Throwable $e): ResponseInterface
+    {
+        // Log the exception
+        $this->container->make('logger')->error('Application Exception: ' . $e->getMessage(), [
+            'exception' => get_class($e),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        // Use the exception handler if available
+        if ($this->container->has('error.handler')) {
+            $handler = $this->container->make('error.handler');
+            return $handler->render($request, $e);
+        }
+
+        // Default error response
+        $debug = env('APP_DEBUG', false);
+
+        $errorData = [
+            'error' => 'Server Error',
+            'message' => $debug ? $e->getMessage() : 'An error occurred while processing your request'
+        ];
+
+        if ($debug) {
+            $errorData['exception'] = get_class($e);
+            $errorData['file'] = $e->getFile();
+            $errorData['line'] = $e->getLine();
+            $errorData['trace'] = explode("\n", $e->getTraceAsString());
+        }
+
+        return (new Response())
+            ->status(500)
+            ->json()
+            ->withJson($errorData);
+    }
+
+//    public function handle(ServerRequestInterface $request): ResponseInterface
+//    {
+//        $response = $this->handleRequest($request);
+//
+//        /**
+//         * This is to be in compliance with RFC 2616, Section 9.
+//         * If the incoming request method is HEAD, we need to ensure that the response body
+//         * is empty as the request may fall back on a GET route handler due to FastRoute's
+//         * routing logic which could potentially append content to the response body
+//         * https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9.4
+//         */
+////        $method = strtoupper($request->getMethod());
+////        if ($method === 'HEAD') {
+////            $emptyBody = $this->responseFactory->createResponse()->getBody();
+////            return $response->withBody($emptyBody);
+////        }
+//
+//        return $response;
+//    }
+//
+//    /**
+//     * Handle HTTP request
+//     *
+//     * @param ServerRequestInterface|null $request
+//     * @return ResponseInterface
+//     */
+//    public function handleRequest(?ServerRequestInterface $request = null): ResponseInterface
+//    {
+//        // Make sure application is bootstrapped
+//        if (!$this->bootstrapped) {
+//            $this->bootstrap();
+//        }
+//
+//        // Create request from globals if not provided
+//        $request = $request ?? Request::createFromGlobals();
+//
+//        // Log incoming request
+//        $this->logRequest($request);
+//
+//        try {
+//            // Find matching route
+//            $routeInfo = $this->getRouter()->match(
+//                $request->getMethod(),
+//                $request->getUri()->getPath()
+//            );
+//
+//            // Create final handler for the route
+//            $finalHandler = $this->createRouteHandler($routeInfo);
+//
+//            // Process the request through middleware
+//            $response = $this->getMiddlewareManager()->process(
+//                $request,
+//                $request->getMethod(),
+//                $request->getUri()->getPath(),
+//                $finalHandler
+//            );
+//
+//            return $response;
+//        } catch (\Throwable $e) {
+//            $this->logger->error('Error handling request', [
+//                'error' => $e->getMessage(),
+//                'trace' => $e->getTraceAsString()
+//            ]);
+//
+//            return $this->handleException($e);
+//        }
+//    }
 
     /**
      * Log the incoming request details
@@ -375,31 +602,21 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     /**
      * Handle method not allowed response
      *
-     * @param ResponseInterface $response
      * @param ServerRequestInterface $request
-     * @param array $routeInfo
+     * @param array $allowedMethods
      * @return ResponseInterface
      */
-    private function handleMethodNotAllowed(
-        ResponseInterface      $response,
-        ServerRequestInterface $request,
-        array                  $routeInfo
-    ): ResponseInterface
+    protected function handleMethodNotAllowed(ServerRequestInterface $request, array $allowedMethods): ResponseInterface
     {
-        $allowedMethods = implode(', ', $routeInfo['allowed_methods']);
-
-        $this->logger->warning('Method not allowed', [
-            'method' => $request->getMethod(),
-            'path' => $request->getUri()->getPath(),
-            'allowed_methods' => $allowedMethods
-        ]);
-
-        return $response->withStatus(405)
-            ->withHeader('Allow', $allowedMethods)
-            ->withHeader('Content-Type', 'application/json')
-            ->withBody($this->createJsonBody([
-                'error' => 'Method Not Allowed'
-            ]));
+        return (new Response())
+            ->status(405)
+            ->withHeader('Allow', implode(', ', $allowedMethods))
+            ->json()
+            ->withJson([
+                'error' => 'Method Not Allowed',
+                'message' => 'The requested method is not allowed for this resource',
+                'allowed_methods' => $allowedMethods
+            ]);
     }
 
     /**
@@ -409,16 +626,16 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * @param ServerRequestInterface $request
      * @return ResponseInterface
      */
-    private function handleNotFound(
-        ResponseInterface      $response,
-        ServerRequestInterface $request
-    ): ResponseInterface
+    protected function handleNotFound(ServerRequestInterface $request): ResponseInterface
     {
-        return $response->withStatus(404)
-            ->withHeader('Content-Type', 'application/json')
-            ->withBody($this->createJsonBody([
-                'error' => 'Not Found'
-            ]));
+        return (new Response())
+            ->status(404)
+            ->json()
+            ->withJson([
+                'error' => 'Not Found',
+                'message' => 'The requested resource was not found',
+                'path' => $request->getUri()->getPath()
+            ]);
     }
 
     /**
@@ -443,20 +660,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     public function runningInConsole(): bool
     {
         return $this->container->get('runningInConsole');
-    }
-
-    /**
-     * Handle unhandled exceptions
-     *
-     * @param Throwable $e
-     * @return ResponseInterface
-     */
-    private function handleException(Throwable $e): ResponseInterface
-    {
-        $this->logException($e, 'Unhandled exception', true);
-
-        $response = new Response();
-        return $this->createErrorResponse($response, 500, 'Internal Server Error');
     }
 
     /**
