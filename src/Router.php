@@ -36,6 +36,10 @@ class Router
      */
     private $middlewareManager;
 
+    private static int $routesCacheHits = 0;
+
+    private static int $routeCleanupThreshold = 10000;
+
     /**
      * Router constructor
      *
@@ -179,6 +183,14 @@ class Router
     {
         // Load routes on-demand when first match is attempted
         RouteRegistry::loadRoutesIfNeeded($this);
+
+        self::$routesCacheHits++;
+
+        // Periodically clean up excessive cached routes
+        if (self::$routesCacheHits > self::$routeCleanupThreshold) {
+            self::cleanupRouteCache();
+            self::$routesCacheHits = 0;
+        }
 
         // Normalize the path
         if (empty($path)) {
@@ -575,5 +587,25 @@ class Router
     public function getMiddlewareManager(): MiddlewareManager
     {
         return $this->middlewareManager;
+    }
+
+    private static function cleanupRouteCache(): void
+    {
+        // Limit static route cache to a reasonable size
+        if (count(self::$allRoutes) > 1000) {
+            // Keep only unique routes, discard duplicates
+            $uniqueRoutes = [];
+            $seenRoutes = [];
+
+            foreach (self::$allRoutes as $route) {
+                $key = $route[0] . '|' . $route[1];
+                if (!isset($seenRoutes[$key])) {
+                    $uniqueRoutes[] = $route;
+                    $seenRoutes[$key] = true;
+                }
+            }
+
+            self::$allRoutes = $uniqueRoutes;
+        }
     }
 }

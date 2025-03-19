@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
+use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Stringable;
@@ -49,7 +50,7 @@ class Stream implements StreamInterface, Stringable
     /**
      * @param string|object|resource $stream
      * @param string $mode Mode with which to open stream
-     * @throws Exception\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public function __construct($stream, string $mode = 'r')
     {
@@ -103,8 +104,8 @@ class Stream implements StreamInterface, Stringable
      * Attach a new stream/resource to the instance.
      *
      * @param string|object|resource $resource
-     * @throws Exception\InvalidArgumentException For stream identifier that cannot be cast to a resource.
-     * @throws Exception\InvalidArgumentException For non-resource stream.
+     * @throws InvalidArgumentException For stream identifier that cannot be cast to a resource.
+     * @throws InvalidArgumentException For non-resource stream.
      */
     public function attach($resource, string $mode = 'r'): void
     {
@@ -323,7 +324,7 @@ class Stream implements StreamInterface, Stringable
      *
      * @param string|object|resource $stream String stream target or stream resource.
      * @param string $mode Resource mode for stream target.
-     * @throws Exception\InvalidArgumentException For invalid streams or resources.
+     * @throws InvalidArgumentException For invalid streams or resources.
      */
     private function setStream($stream, string $mode = 'r'): void
     {
@@ -349,7 +350,7 @@ class Stream implements StreamInterface, Stringable
         }
 
         if (! $this->isValidStreamResourceType($resource)) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid stream provided; must be a string stream identifier or stream resource'
             );
         }
@@ -374,6 +375,43 @@ class Stream implements StreamInterface, Stringable
         }
 
         return false;
+    }
+
+    /**
+     * Ensure the stream is properly initialized in Swoole context
+     *
+     * @return bool True if stream is valid
+     */
+    public function ensureStreamValid(): bool
+    {
+        if (!$this->resource) {
+            return false;
+        }
+
+        // Check if we're in a Swoole environment
+        if (extension_loaded('swoole')) {
+            // Get the URI for file-based streams
+            $meta = $this->getMetadata();
+            $uri = $meta['uri'] ?? null;
+
+            // If it's a file, verify it exists and is readable
+            if ($uri && is_string($uri) && file_exists($uri)) {
+                // Resource is valid
+                return true;
+            } elseif ($uri) {
+                // Try to reopen the file if it exists but resource is invalid
+                try {
+                    $mode = $meta['mode'] ?? 'r';
+                    $this->resource = fopen($uri, $mode);
+                    return is_resource($this->resource);
+                } catch (\Throwable $e) {
+                    return false;
+                }
+            }
+        }
+
+        // Default: check if resource is still valid
+        return is_resource($this->resource);
     }
 
     /**

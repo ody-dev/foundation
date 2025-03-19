@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Ody\Core\Foundation\Http;
+namespace Ody\Foundation\Http;
 
+use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 
@@ -54,7 +55,7 @@ class UploadedFile implements UploadedFileInterface
 
     /**
      * @param string|resource|StreamInterface $streamOrFile
-     * @throws Exception\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public function __construct(
         $streamOrFile,
@@ -73,14 +74,14 @@ class UploadedFile implements UploadedFileInterface
 
             if ($this->file === null && $this->stream === null) {
                 if (! $streamOrFile instanceof StreamInterface) {
-                    throw new Exception\InvalidArgumentException('Invalid stream or file provided for UploadedFile');
+                    throw new InvalidArgumentException('Invalid stream or file provided for UploadedFile');
                 }
                 $this->stream = $streamOrFile;
             }
         }
 
         if (0 > $errorStatus || 8 < $errorStatus) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid error status for UploadedFile; must be an UPLOAD_ERR_* constant'
             );
         }
@@ -120,8 +121,8 @@ class UploadedFile implements UploadedFileInterface
      *
      * @param string $targetPath Path to which to move the uploaded file.
      * @throws Exception\UploadedFileErrorException If the upload was not successful.
-     * @throws Exception\InvalidArgumentException If the $path specified is invalid.
-     * @throws Exception\UploadedFileErrorException On any error during the
+     * @throws \InvalidArgumentException If the $path specified is invalid.
+     * @throws Exception\UploadedFileErrorException|Exception\UploadedFileAlreadyMovedException On any error during the
      *     move operation, or on the second or subsequent call to the method.
      */
     public function moveTo(string $targetPath): void
@@ -137,7 +138,7 @@ class UploadedFile implements UploadedFileInterface
         }
 
         if (empty($targetPath)) {
-            throw new Exception\InvalidArgumentException(
+            throw new \InvalidArgumentException(
                 'Invalid path provided for move operation; must be a non-empty string'
             );
         }
@@ -148,7 +149,14 @@ class UploadedFile implements UploadedFileInterface
         }
 
         $sapi = PHP_SAPI;
+        $isSwoole = extension_loaded('swoole');
+
         switch (true) {
+            case $isSwoole:
+                // Special handling for Swoole environment
+                $this->moveUploadedFileInSwoole($this->file, $targetPath);
+                break;
+
             case empty($sapi)
                 || str_starts_with($sapi, 'cli')
                 || str_starts_with($sapi, 'phpdbg')
@@ -163,6 +171,7 @@ class UploadedFile implements UploadedFileInterface
                     unlink($this->file);
                 }
                 break;
+
             default:
                 // SAPI environment, with file present
                 if (false === move_uploaded_file($this->file, $targetPath)) {
@@ -172,6 +181,35 @@ class UploadedFile implements UploadedFileInterface
         }
 
         $this->moved = true;
+    }
+
+    /**
+     * Move an uploaded file in Swoole environment
+     *
+     * @param string|null $sourcePath Source path
+     * @param string $targetPath Target path
+     * @throws Exception\UploadedFileErrorException
+     */
+    private function moveUploadedFileInSwoole(?string $sourcePath, string $targetPath): void
+    {
+        if (!$sourcePath || !file_exists($sourcePath)) {
+            throw Exception\UploadedFileErrorException::forUnmovableFile();
+        }
+
+        // In Swoole, we use copy + unlink instead of move_uploaded_file
+        if (!copy($sourcePath, $targetPath)) {
+            throw Exception\UploadedFileErrorException::dueToUnwritableTarget(dirname($targetPath));
+        }
+
+        // Delete the source file
+        if (file_exists($sourcePath)) {
+            unlink($sourcePath);
+        }
+
+        // Close stream if open
+        if ($this->stream instanceof StreamInterface) {
+            $this->stream->close();
+        }
     }
 
     /**

@@ -4,6 +4,7 @@ namespace Ody\Foundation\Http;
 use Ody\Foundation\Application;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Swoole\Http\Request;
 use Swoole\Http\Response;
@@ -54,7 +55,7 @@ final class RequestCallback
             if ($logger) {
                 $logger->error('Unhandled exception in request handling', $errorContext);
             } else {
-                error_log("CRITICAL ERROR: " . json_encode($errorContext, JSON_PRETTY_PRINT));
+                logger()->critical('Unhandled exception in request handling', $errorContext);
             }
 
             // Send error response
@@ -132,12 +133,27 @@ final class RequestCallback
             }
         }
         // For multipart form data
+        // Inside the createServerRequest method where you handle content types:
         else if (strpos($contentType, 'multipart/form-data') !== false) {
             $parsedBody = $swooleRequest->post ?? [];
-            if (!empty($parsedBody)) {
-                $serverRequest = $serverRequest->withParsedBody($parsedBody);
-                error_log("RequestCallback: Using multipart form data from swoole request");
+
+            // Properly normalize and process uploaded files
+            $files = [];
+            if (!empty($swooleRequest->files)) {
+                // Normalize the files array to match PSR-7 structure
+                $files = normalizeUploadedFiles($swooleRequest->files);
+
+                // Add debug logging
+                logger()->debug('Processed file uploads in multipart request', [
+                    'count' => count($files),
+                    'keys' => array_keys($swooleRequest->files)
+                ]);
             }
+
+            // Update server request with parsed body and files
+            $serverRequest = $serverRequest
+                ->withParsedBody($parsedBody)
+                ->withUploadedFiles($files);
         }
 
         return $serverRequest;
@@ -174,5 +190,63 @@ final class RequestCallback
         }
 
         $body->close();
+    }
+
+    /**
+     * Process uploaded files from Swoole request
+     *
+     * @param array $files Files array from Swoole request
+     * @return array Normalized uploaded files array
+     */
+    private function processUploadedFiles(array $files): array
+    {
+        // Use your existing normalizeUploadedFiles function
+        // but with additional validation and error handling
+        try {
+            $normalizedFiles = normalizeUploadedFiles($files);
+
+            // Verify temp files exist and are readable
+            $this->validateUploadedFiles($normalizedFiles);
+
+            return $normalizedFiles;
+        } catch (\Throwable $e) {
+            logger()->error('Error processing uploaded files', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Validate that temporary files exist and are readable
+     *
+     * @param array $files Normalized uploaded files array
+     */
+    private function validateUploadedFiles(array $files): void
+    {
+        foreach ($files as $key => $file) {
+            if ($file instanceof UploadedFileInterface) {
+                // Skip files with upload errors (except UPLOAD_ERR_OK)
+                if ($file->getError() !== UPLOAD_ERR_OK) {
+                    continue;
+                }
+
+                // Verify the temp file exists and is readable
+                $stream = $file->getStream();
+                $meta = $stream->getMetadata();
+                $uri = $meta['uri'] ?? null;
+
+                if ($uri && !is_readable($uri)) {
+                    logger()->warning('Upload temp file not readable', [
+                        'key' => $key,
+                        'uri' => $uri
+                    ]);
+                }
+            } elseif (is_array($file)) {
+                $this->validateUploadedFiles($file);
+            }
+        }
     }
 }

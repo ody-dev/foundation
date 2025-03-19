@@ -132,13 +132,24 @@ class Request implements ServerRequestInterface
         // Create URI
         $uri = self::createUriFromServerArray($server, $factory);
 
+        // Create body stream from pool instead of creating new one
+        $rawContent = $swooleRequest->rawContent() ?? '';
+        $body = RequestResponsePool::getStream();
+
+        // Reset and write new content to the pooled stream
+        try {
+            $body->rewind();
+            $body->write($rawContent);
+            $body->rewind();
+        } catch (\Throwable $e) {
+            // If reusing stream fails, create a new one
+            $body = $factory->createStream($rawContent);
+        }
+
         // Create basic request
         $method = $server['request_method'] ?? 'GET';
         $protocol = isset($server['server_protocol']) ?
             str_replace('HTTP/', '', $server['server_protocol']) : '1.1';
-
-        // Create body stream
-        $body = $factory->createStream($swooleRequest->rawContent() ?? '');
 
         // Convert Swoole headers to PSR-7 format
         $headers = [];

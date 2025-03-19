@@ -303,9 +303,13 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             $request->getUri()->getPath()
         );
 
+        // Create a response object for the handler
+        $response = new Response();
+
         // Create a middleware pipeline
-        $finalHandler = function (ServerRequestInterface $request) use ($handler, $routeParams) {
-            return call_user_func($handler, $request, $routeParams);
+        $finalHandler = function (ServerRequestInterface $request) use ($handler, $response, $routeParams) {
+            // Pass both response and route params
+            return call_user_func($handler, $request, $response, $routeParams);
         };
 
         $registry = $middlewareManager->getRegistry();
