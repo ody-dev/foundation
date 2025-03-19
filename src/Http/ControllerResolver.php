@@ -10,18 +10,15 @@
 namespace Ody\Foundation\Http;
 
 use Ody\Container\Container;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\ResponseInterface;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use ReflectionClass;
-use ReflectionMethod;
+use ReflectionException;
 use ReflectionParameter;
 
 /**
- * Controller Resolver
+ * ControllerResolver
  *
- * Resolves controllers and their actions, handling dependency injection
+ * Resolves string controller references to callable instances
  */
 class ControllerResolver
 {
@@ -39,170 +36,316 @@ class ControllerResolver
      * Constructor
      *
      * @param Container $container
-     * @param LoggerInterface|null $logger
+     * @param LoggerInterface $logger
      */
-    public function __construct(Container $container, ?LoggerInterface $logger = null)
+    public function __construct(Container $container, LoggerInterface $logger)
     {
         $this->container = $container;
-        $this->logger = $logger ?? new NullLogger();
+        $this->logger = $logger;
     }
 
     /**
-     * Create a controller instance
+     * Resolve a controller reference
      *
-     * @param string $controllerClass
-     * @return object
-     * @throws \RuntimeException If controller cannot be resolved
+     * @param string|callable $controller Controller reference
+     * @return array|callable
+     * @throws \Exception
      */
-    public function createController(string $controllerClass)
+    public function resolve($controller)
+    {
+        // Already a callable, return as-is
+        if (is_callable($controller)) {
+            return $controller;
+        }
+
+        // Handle "Controller@method" string format
+        if (is_string($controller) && strpos($controller, '@') !== false) {
+            list($class, $method) = explode('@', $controller, 2);
+
+            // Create the controller instance
+            $instance = $this->createController($class);
+
+            // Check if the method exists
+            if (!method_exists($instance, $method)) {
+                throw new \RuntimeException("Method '{$method}' does not exist on controller '{$class}'");
+            }
+
+            // Return as callable array
+            return [$instance, $method];
+        }
+
+        // Handle ["Controller", "method"] array format
+        if (is_array($controller) && count($controller) === 2 && is_string($controller[0]) && is_string($controller[1])) {
+            $class = $controller[0];
+            $method = $controller[1];
+
+            // Create the controller instance
+            $instance = $this->createController($class);
+
+            // Check if the method exists
+            if (!method_exists($instance, $method)) {
+                throw new \RuntimeException("Method '{$method}' does not exist on controller '{$class}'");
+            }
+
+            // Return as callable array
+            return [$instance, $method];
+        }
+
+        // Handle already resolved [object, "method"] array format
+        if (is_array($controller) && count($controller) === 2 && is_object($controller[0]) && is_string($controller[1])) {
+            return $controller;
+        }
+
+        throw new \InvalidArgumentException("Unable to resolve controller: " . (is_string($controller) ? $controller : gettype($controller)));
+    }
+
+    /**
+     * Create a controller instance with all dependencies resolved
+     *
+     * @param string $class Controller class name
+     * @return object Controller instance
+     * @throws \Exception If controller cannot be created
+     */
+    public function createController(string $class): object
     {
         try {
-            // Check if class exists
-            if (!class_exists($controllerClass)) {
-                throw new \RuntimeException("Controller class not found: {$controllerClass}");
+            // First check if the controller exists
+            if (!class_exists($class)) {
+                throw new \RuntimeException("Controller class '{$class}' does not exist");
             }
 
-            // Create from container
-            if ($this->container->has($controllerClass)) {
-                return $this->container->make($controllerClass);
+            // Log attempt
+            $this->logger->debug("Attempting to create controller: {$class}");
+
+            // First try to resolve using the container's make method
+            try {
+                // Does the container know about this class?
+                if ($this->container->has($class)) {
+                    $this->logger->debug("Container has binding for {$class}, using container->make()");
+                    return $this->container->make($class);
+                }
+
+                // Try to make the controller even if it's not explicitly bound
+                $this->logger->debug("No explicit binding for {$class}, trying container->make() anyway");
+                $instance = $this->container->make($class);
+                $this->logger->debug("Successfully created {$class} via container");
+                return $instance;
+            } catch (\Throwable $containerException) {
+                // Log container error
+                $this->logger->warning("Container failed to create {$class}: {$containerException->getMessage()}");
+                $this->logger->debug("Container error trace: {$containerException->getTraceAsString()}");
+
+                // Fall back to reflection-based instantiation with more debug info
+                $this->logger->debug("Falling back to reflection-based instantiation for {$class}");
+                return $this->createControllerWithReflection($class);
             }
-
-            // Create directly if not available in container
-            return new $controllerClass();
-
         } catch (\Throwable $e) {
-            $this->logger->error("Error creating controller: {$e->getMessage()}", [
-                'controller' => $controllerClass,
+            $this->logger->error("Error creating controller", [
+                'controller' => $class,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
 
-            throw new \RuntimeException("Failed to create controller: {$controllerClass}", 0, $e);
+            throw new \RuntimeException("Error creating controller: {$e->getMessage()}", 0, $e);
         }
     }
 
     /**
-     * Call a controller method with dependency injection
+     * Create a controller using reflection to resolve dependencies
      *
-     * @param object $controller Controller instance
-     * @param string $method Method name
-     * @param ServerRequestInterface $request
-     * @param array $routeParams Route parameters
-     * @return mixed Method return value
-     * @throws \RuntimeException If method cannot be called
+     * @param string $class Controller class name
+     * @return object Controller instance
+     * @throws ReflectionException
      */
-    public function callMethod($controller, string $method, ServerRequestInterface $request, array $routeParams = [])
+    protected function createControllerWithReflection(string $class): object
     {
-        try {
-            $controllerClass = get_class($controller);
+        $reflectionClass = new ReflectionClass($class);
 
-            // Check if method exists
-            if (!method_exists($controller, $method)) {
-                throw new \RuntimeException("Method not found: {$controllerClass}::{$method}");
+        if (!$reflectionClass->isInstantiable()) {
+            throw new \RuntimeException("Controller class '{$class}' is not instantiable");
+        }
+
+        $constructor = $reflectionClass->getConstructor();
+
+        // If no constructor, we can just create a new instance
+        if ($constructor === null) {
+            $this->logger->debug("{$class} has no constructor, creating directly");
+            return new $class();
+        }
+
+        // Get constructor parameters
+        $parameters = $constructor->getParameters();
+
+        if (empty($parameters)) {
+            $this->logger->debug("{$class} constructor has no parameters, creating directly");
+            return new $class();
+        }
+
+        // Log out the required dependencies
+        $parameterDetails = [];
+        foreach ($parameters as $param) {
+            $type = $param->getType() ? $param->getType()->getName() : 'unknown';
+            $parameterDetails[] = "{$param->getName()}: {$type}" .
+                ($param->isOptional() ? ' (optional)' : ' (required)');
+        }
+
+        $this->logger->debug("Controller {$class} requires dependencies:", [
+            'parameters' => $parameterDetails
+        ]);
+
+        // Check container bindings for each dependency
+        foreach ($parameters as $param) {
+            $typeName = $param->getType() ? $param->getType()->getName() : null;
+            if ($typeName && $this->container->has($typeName)) {
+                $this->logger->debug("Found container binding for {$typeName}");
+            } elseif ($typeName) {
+                $this->logger->warning("No container binding found for {$typeName}");
+            }
+        }
+
+        // Resolve dependencies
+        $dependencies = $this->resolveDependencies($parameters);
+
+        // Create and return the controller instance
+        $this->logger->debug("Creating {$class} with " . count($dependencies) . " resolved dependencies");
+        return $reflectionClass->newInstanceArgs($dependencies);
+    }
+
+    /**
+     * Resolve constructor dependencies
+     *
+     * @param ReflectionParameter[] $parameters
+     * @return array
+     * @throws \Exception
+     */
+    protected function resolveDependencies(array $parameters): array
+    {
+        $dependencies = [];
+
+        foreach ($parameters as $parameter) {
+            $dependencies[] = $this->resolveDependency($parameter);
+        }
+
+        return $dependencies;
+    }
+
+    /**
+     * Resolve a single dependency
+     *
+     * @param ReflectionParameter $parameter
+     * @return mixed
+     * @throws \Exception
+     */
+    protected function resolveDependency(ReflectionParameter $parameter)
+    {
+        // If the parameter has a type, try to resolve it
+        $type = $parameter->getType();
+
+        if ($type && !$type->isBuiltin()) {
+            $typeName = $type->getName();
+
+            $this->logger->debug("Attempting to resolve dependency: {$parameter->getName()} of type {$typeName}");
+
+            // Try to get from container
+            if ($this->container->has($typeName)) {
+                try {
+                    $instance = $this->container->get($typeName);
+                    $this->logger->debug("Successfully resolved {$typeName} from container");
+                    return $instance;
+                } catch (\Throwable $e) {
+                    $this->logger->warning("Failed to get {$typeName} from container: {$e->getMessage()}");
+                    // Continue to other resolution methods
+                }
             }
 
-            // Use reflection to analyze the method
-            $reflectionMethod = new ReflectionMethod($controller, $method);
-            $methodParams = $reflectionMethod->getParameters();
-            $resolvedParams = [];
-
-            // Create a default response if needed for controller methods that expect it
-            $response = $this->container->has(ResponseInterface::class)
-                ? $this->container->make(ResponseInterface::class)
-                : new Response();
-
-            // Check if method is expecting a response parameter
-            $needsResponse = false;
-            foreach ($methodParams as $param) {
-                if ($this->isResponseParameter($param)) {
-                    $needsResponse = true;
-                    break;
-                }
+            // Try to make the instance
+            try {
+                $instance = $this->container->make($typeName);
+                $this->logger->debug("Successfully created {$typeName} via container->make()");
+                return $instance;
+            } catch (\Throwable $e) {
+                $this->logger->warning("Failed to make {$typeName}: {$e->getMessage()}");
+                // Continue to other resolution methods
             }
 
-            // Prepare parameters
-            foreach ($methodParams as $param) {
-                // Handle ServerRequestInterface parameter
-                if ($this->isRequestParameter($param)) {
-                    $resolvedParams[] = $request;
-                    continue;
-                }
+            // Check for service aliases
+            $aliases = [
+                'logger' => 'Psr\Log\LoggerInterface',
+                'auth' => 'Ody\Auth\AuthManager',
+                'auth.manager' => 'Ody\Auth\AuthManager',
+                'app' => 'Ody\Foundation\Application',
+                'config' => 'Ody\Support\Config',
+                'db' => 'Ody\Database\Connection',
+            ];
 
-                // Handle ResponseInterface parameter
-                if ($this->isResponseParameter($param)) {
-                    $resolvedParams[] = $response;
-                    continue;
-                }
-
-                // Handle array of route parameters
-                if ($param->getName() === 'params' && $param->getType() && $param->getType()->getName() === 'array') {
-                    $resolvedParams[] = $routeParams;
-                    continue;
-                }
-
-                // Try to resolve from route parameters
-                if (isset($routeParams[$param->getName()])) {
-                    $resolvedParams[] = $routeParams[$param->getName()];
-                    continue;
-                }
-
-                // Try to resolve from container by type
-                if ($param->getType() && !$param->getType()->isBuiltin()) {
-                    $typeName = $param->getType()->getName();
-                    if ($this->container->has($typeName)) {
-                        $resolvedParams[] = $this->container->make($typeName);
-                        continue;
+            // Try to resolve from known aliases
+            foreach ($aliases as $alias => $aliasedClass) {
+                if ($typeName === $aliasedClass && $this->container->has($alias)) {
+                    try {
+                        $instance = $this->container->get($alias);
+                        $this->logger->debug("Resolved {$typeName} from alias '{$alias}'");
+                        return $instance;
+                    } catch (\Throwable $e) {
+                        $this->logger->warning("Failed to get {$typeName} from alias '{$alias}': {$e->getMessage()}");
                     }
                 }
-
-                // Use default value if available
-                if ($param->isOptional()) {
-                    $resolvedParams[] = $param->getDefaultValue();
-                    continue;
-                }
-
-                // If we get here, we couldn't resolve the parameter
-                throw new \RuntimeException("Could not resolve parameter '{$param->getName()}' for method {$controllerClass}::{$method}");
             }
 
-            // Call the method with the resolved parameters
-            return $reflectionMethod->invokeArgs($controller, $resolvedParams);
+            // Last resort: Try to create the dependency directly (this can lead to unconfigured instances)
+            if (class_exists($typeName)) {
+                try {
+                    $dependencyReflection = new ReflectionClass($typeName);
+                    if ($dependencyReflection->isInstantiable()) {
+                        $dependencyConstructor = $dependencyReflection->getConstructor();
 
-        } catch (\Throwable $e) {
-            $this->logger->error("Error calling controller method: {$e->getMessage()}", [
-                'controller' => get_class($controller),
-                'method' => $method,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            throw new \RuntimeException("Failed to call controller method: {$method}", 0, $e);
+                        // If the dependency has no constructor or has optional parameters
+                        if ($dependencyConstructor === null || $dependencyConstructor->getNumberOfRequiredParameters() === 0) {
+                            $this->logger->debug("Creating {$typeName} directly as a last resort");
+                            return $dependencyReflection->newInstance();
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $this->logger->warning("Failed to create {$typeName} directly: {$e->getMessage()}");
+                }
+            }
         }
+
+        // If parameter is optional, return default value
+        if ($parameter->isOptional()) {
+            $this->logger->debug("Using default value for optional parameter {$parameter->getName()}");
+            return $parameter->getDefaultValue();
+        }
+
+        // Failed to resolve the dependency
+        throw new \RuntimeException(
+            "Unable to resolve dependency: {$parameter->getName()}" .
+            ($type ? " of type " . $type->getName() : "")
+        );
     }
 
     /**
-     * Check if a parameter is a PSR-7 request
+     * Get a descriptive name for a controller
      *
-     * @param ReflectionParameter $param
-     * @return bool
+     * @param mixed $controller
+     * @return string
      */
-    private function isRequestParameter(ReflectionParameter $param): bool
+    public function getControllerName($controller): string
     {
-        return $param->getType()
-            && ($param->getType()->getName() === ServerRequestInterface::class
-                || is_subclass_of($param->getType()->getName(), ServerRequestInterface::class));
-    }
+        if (is_string($controller)) {
+            return $controller;
+        }
 
-    /**
-     * Check if a parameter is a PSR-7 response
-     *
-     * @param ReflectionParameter $param
-     * @return bool
-     */
-    private function isResponseParameter(ReflectionParameter $param): bool
-    {
-        return $param->getType()
-            && ($param->getType()->getName() === ResponseInterface::class
-                || is_subclass_of($param->getType()->getName(), ResponseInterface::class));
+        if (is_array($controller)) {
+            if (is_object($controller[0])) {
+                return get_class($controller[0]) . '::' . $controller[1];
+            }
+            return $controller[0] . '::' . $controller[1];
+        }
+
+        if (is_object($controller)) {
+            return get_class($controller);
+        }
+
+        return 'unknown';
     }
 }

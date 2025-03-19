@@ -362,14 +362,39 @@ class MiddlewareRegistry
      */
     protected function resolveMiddleware($middleware): MiddlewareInterface
     {
+        // Handle MiddlewareConfig objects
+        if ($middleware instanceof MiddlewareConfig) {
+            $class = $middleware->getClass();
+            $parameters = $middleware->getParameters();
+
+            // Try to create the instance with the provided parameters
+            $instance = $this->createInstanceWithParameters($class, $parameters);
+
+            // Ensure it's a valid middleware
+            if ($instance instanceof MiddlewareInterface) {
+                return $instance;
+            }
+
+            throw new \RuntimeException(
+                "Middleware class '$class' must implement MiddlewareInterface"
+            );
+        }
+
         // Handle string class names
         if (is_string($middleware) && class_exists($middleware)) {
             // Try to resolve from container
             if ($this->container->has($middleware)) {
                 $instance = $this->container->make($middleware);
             } else {
-                // Create the instance directly
-                $instance = new $middleware();
+                // FIXED: Instead of creating directly with new, use container's make method
+                // This allows the container to resolve dependencies
+                try {
+                    $instance = $this->container->make($middleware);
+                } catch (\Throwable $e) {
+                    $this->logger->warning('Failed to resolve middleware via container, trying reflection: ' . $e->getMessage());
+                    // Fallback to reflection-based instantiation
+                    $instance = $this->createInstanceWithReflection($middleware);
+                }
             }
 
             // Ensure it's a valid middleware
@@ -393,8 +418,136 @@ class MiddlewareRegistry
         }
 
         throw new \RuntimeException(
-            'Middleware must be a class name, instance of MiddlewareInterface, or callable'
+            'Middleware must be a class name, instance of MiddlewareInterface, callable, or MiddlewareConfig'
         );
+    }
+
+    /**
+     * Create an instance with specific parameters
+     *
+     * @param string $className
+     * @param array $parameters
+     * @return object
+     * @throws \ReflectionException
+     */
+    protected function createInstanceWithParameters(string $className, array $parameters): object
+    {
+        $reflectionClass = new \ReflectionClass($className);
+
+        if (!$reflectionClass->isInstantiable()) {
+            throw new \RuntimeException("Class $className is not instantiable");
+        }
+
+        $constructor = $reflectionClass->getConstructor();
+
+        // If no constructor, create instance directly
+        if ($constructor === null) {
+            return new $className();
+        }
+
+        // Get constructor parameters
+        $constructorParams = $constructor->getParameters();
+        $resolvedParams = [];
+
+        // Resolve each parameter
+        foreach ($constructorParams as $param) {
+            $paramName = $param->getName();
+
+            // If parameter exists in provided parameters, use it
+            if (array_key_exists($paramName, $parameters)) {
+                $resolvedParams[] = $parameters[$paramName];
+                continue;
+            }
+
+            // Otherwise try to resolve from container
+            $paramType = $param->getType();
+            if ($paramType !== null && !$paramType->isBuiltin()) {
+                $typeName = $paramType->getName();
+
+                if ($this->container->has($typeName)) {
+                    $resolvedParams[] = $this->container->make($typeName);
+                    continue;
+                }
+
+                // Special handling for common types
+                if ($typeName === LoggerInterface::class && $this->container->has('logger')) {
+                    $resolvedParams[] = $this->container->make('logger');
+                    continue;
+                }
+            }
+
+            // If parameter is optional, use default value
+            if ($param->isOptional()) {
+                $resolvedParams[] = $param->getDefaultValue();
+                continue;
+            }
+
+            // If we can't resolve the parameter, log and throw exception
+            $this->logger->error("Cannot resolve parameter '$paramName' for class $className");
+            throw new \RuntimeException("Cannot resolve parameter '$paramName' for class $className");
+        }
+
+        // Create instance with resolved parameters
+        return $reflectionClass->newInstanceArgs($resolvedParams);
+    }
+
+    /**
+     * Create an instance using reflection to resolve constructor dependencies
+     *
+     * @param string $className
+     * @return object
+     * @throws \ReflectionException
+     */
+    protected function createInstanceWithReflection(string $className): object
+    {
+        $reflectionClass = new \ReflectionClass($className);
+
+        if (!$reflectionClass->isInstantiable()) {
+            throw new \RuntimeException("Class $className is not instantiable");
+        }
+
+        $constructor = $reflectionClass->getConstructor();
+
+        // If no constructor or constructor has no parameters, create instance directly
+        if ($constructor === null || $constructor->getNumberOfParameters() === 0) {
+            return new $className();
+        }
+
+        // Resolve constructor parameters
+        $parameters = [];
+        foreach ($constructor->getParameters() as $param) {
+            $paramName = $param->getName();
+            $paramType = $param->getType();
+
+            // If parameter has a type, try to resolve from container
+            if ($paramType !== null && !$paramType->isBuiltin()) {
+                $typeName = $paramType->getName();
+
+                if ($this->container->has($typeName)) {
+                    $parameters[] = $this->container->make($typeName);
+                    continue;
+                }
+
+                // Special handling for common types
+                if ($typeName === LoggerInterface::class && $this->container->has('logger')) {
+                    $parameters[] = $this->container->make('logger');
+                    continue;
+                }
+            }
+
+            // Check if parameter is optional
+            if ($param->isOptional()) {
+                $parameters[] = $param->getDefaultValue();
+                continue;
+            }
+
+            // If we can't resolve the parameter, log and throw exception
+            $this->logger->error("Cannot resolve parameter '$paramName' for class $className");
+            throw new \RuntimeException("Cannot resolve parameter '$paramName' for class $className");
+        }
+
+        // Create instance with resolved parameters
+        return $reflectionClass->newInstanceArgs($parameters);
     }
 
     /**
@@ -582,25 +735,69 @@ class MiddlewareRegistry
         // Register named middleware
         if (isset($config['named']) && is_array($config['named'])) {
             foreach ($config['named'] as $name => $middleware) {
-                $this->named($name, $middleware);
+                // Check if middleware has parameters
+                if (is_array($middleware) && isset($middleware['class'])) {
+                    $middlewareClass = $middleware['class'];
+                    $parameters = $middleware['parameters'] ?? [];
+                    $this->named($name, new MiddlewareConfig($middlewareClass, $parameters));
+                } else {
+                    $this->named($name, $middleware);
+                }
             }
         }
 
         // Register groups
         if (isset($config['groups']) && is_array($config['groups'])) {
             foreach ($config['groups'] as $name => $middlewareList) {
-                $this->group($name, $middlewareList);
+                $processed = $this->processMiddlewareConfig($middlewareList);
+                $this->group($name, $processed);
             }
         }
 
         // Register global middleware
         if (isset($config['global']) && is_array($config['global'])) {
             foreach ($config['global'] as $middleware) {
-                $this->global($middleware);
+                // Check if middleware has parameters
+                if (is_array($middleware) && isset($middleware['class'])) {
+                    $middlewareClass = $middleware['class'];
+                    $parameters = $middleware['parameters'] ?? [];
+                    $this->global(new MiddlewareConfig($middlewareClass, $parameters));
+                } else {
+                    $this->global($middleware);
+                }
             }
         }
 
         return $this;
+    }
+
+    /**
+     * Process middleware configuration to support parameters
+     *
+     * @param array $middlewareList
+     * @return array
+     */
+    protected function processMiddlewareConfig(array $middlewareList): array
+    {
+        $result = [];
+
+        foreach ($middlewareList as $middleware) {
+            // Check if it's a middleware with parameters
+            if (is_array($middleware) && isset($middleware['class'])) {
+                $middlewareClass = $middleware['class'];
+                $parameters = $middleware['parameters'] ?? [];
+                $result[] = new MiddlewareConfig($middlewareClass, $parameters);
+            } // Check if it's a [class, parameters] array format
+            elseif (is_array($middleware) && count($middleware) === 2 && is_string($middleware[0]) && is_array($middleware[1])) {
+                $middlewareClass = $middleware[0];
+                $parameters = $middleware[1];
+                $result[] = new MiddlewareConfig($middlewareClass, $parameters);
+            } else {
+                $result[] = $middleware;
+            }
+        }
+
+        return $result;
     }
 
     /**

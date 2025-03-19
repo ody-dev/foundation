@@ -15,12 +15,11 @@ use Ody\Foundation\MiddlewareManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * ControllerDispatcher
  *
- * Handles dispatching requests to controller methods with middleware
+ * Dispatches requests to controllers with middleware processing
  */
 class ControllerDispatcher
 {
@@ -50,78 +49,107 @@ class ControllerDispatcher
      * @param Container $container
      * @param ControllerResolver $resolver
      * @param MiddlewareManager $middlewareManager
-     * @param LoggerInterface|null $logger
+     * @param LoggerInterface $logger
      */
     public function __construct(
         Container $container,
         ControllerResolver $resolver,
-        MiddlewareManager  $middlewareManager,
-        ?LoggerInterface $logger = null
+        MiddlewareManager $middlewareManager,
+        LoggerInterface   $logger
     ) {
         $this->container = $container;
         $this->resolver = $resolver;
         $this->middlewareManager = $middlewareManager;
-        $this->logger = $logger ?? new NullLogger();
+        $this->logger = $logger;
     }
 
     /**
-     * Dispatch a request to a controller method
+     * Dispatch a request to a controller
      *
      * @param ServerRequestInterface $request
-     * @param string $controller Controller class name
-     * @param string $action Controller method name
-     * @param array $params Route parameters
+     * @param string $controller
+     * @param string $action
+     * @param array $routeParams
      * @return ResponseInterface
      */
     public function dispatch(
         ServerRequestInterface $request,
         string $controller,
         string $action,
-        array  $params = []
+        array $routeParams = []
     ): ResponseInterface {
-        $this->logger->debug("Dispatching to controller: {$controller}@{$action}");
+        try {
+            // Resolve the controller
+            $controllerInstance = $this->resolver->createController($controller);
 
-        // Resolve the controller instance using createController method
-        $instance = $this->resolver->createController($controller);
+            // Get middleware for the controller and action
+            $method = $request->getMethod();
+            $path = $request->getUri()->getPath();
 
-        // Add route parameters to the request attributes
-        foreach ($params as $key => $value) {
-            $request = $request->withAttribute($key, $value);
-        }
+            // Log the dispatch attempt
+            $this->logger->debug("Dispatching to controller", [
+                'controller' => $controller,
+                'action' => $action,
+                'method' => $method,
+                'path' => $path
+            ]);
 
-        // Build the middleware stack for this controller/action
-        $middlewareStack = $this->middlewareManager->getMiddlewareForRoute(
-            $request->getMethod(),
-            $request->getUri()->getPath(),
-            $controller,
-            $action
-        );
+            // Get middleware for this controller/action
+            $middlewareStack = $this->middlewareManager->getMiddlewareForRoute(
+                $method,
+                $path,
+                $controller,
+                $action
+            );
 
-        // Create the final handler that invokes the controller method
-        $finalHandler = function (ServerRequestInterface $request) use ($instance, $action, $params) {
-            // Call the controller method using the resolver
-            return $this->resolver->callMethod($instance, $action, $request, $params);
-        };
+            // Create a final handler for the controller action
+            $finalHandler = function (ServerRequestInterface $request) use ($controllerInstance, $action, $routeParams) {
+                // Create a response instance
+                $response = $this->container->make(Response::class);
 
-        // Create a middleware pipeline
-        $pipeline = new MiddlewarePipeline($finalHandler);
+                // Add route parameters to the request
+                foreach ($routeParams as $name => $value) {
+                    $request = $request->withAttribute($name, $value);
+                }
 
-        // Add the middleware to the pipeline
-        foreach ($middlewareStack as $middleware) {
-            try {
-                $resolvedMiddleware = $this->middlewareManager->resolve($middleware);
-                $pipeline->add($resolvedMiddleware);
-            } catch (\Throwable $e) {
-                $this->logger->error("Failed to resolve middleware in controller dispatch", [
-                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
-                    'controller' => $controller,
-                    'action' => $action,
-                    'error' => $e->getMessage()
+                // Log the controller execution
+                $this->logger->debug("Executing controller action", [
+                    'controller' => get_class($controllerInstance),
+                    'action' => $action
                 ]);
-            }
-        }
 
-        // Execute the pipeline
-        return $pipeline->handle($request);
+                // Call the controller action with request, response, and any route parameters
+                return call_user_func([$controllerInstance, $action], $request, $response, $routeParams);
+            };
+
+            // Create a middleware pipeline from the resolved stack
+            $pipeline = new MiddlewarePipeline($finalHandler);
+
+            // Add each middleware to the pipeline
+            foreach ($middlewareStack as $middleware) {
+                try {
+                    $instance = $this->middlewareManager->resolve($middleware);
+                    $pipeline->add($instance);
+                } catch (\Throwable $e) {
+                    $this->logger->error('Error resolving controller middleware', [
+                        'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // Process the request through the middleware pipeline
+            return $pipeline->handle($request);
+
+        } catch (\Throwable $e) {
+            $this->logger->error("Controller dispatch error", [
+                'controller' => $controller,
+                'action' => $action,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            throw $e;
+        }
     }
 }

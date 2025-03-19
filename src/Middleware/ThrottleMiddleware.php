@@ -23,12 +23,12 @@ class ThrottleMiddleware implements MiddlewareInterface
     /**
      * @var int Default maximum requests
      */
-    private int $defaultMaxRequests;
+    private int $maxRequests;
 
     /**
      * @var int Default time window in minutes
      */
-    private int $defaultMinutes;
+    private int $minutes;
 
     /**
      * @var LoggerInterface|null
@@ -43,12 +43,12 @@ class ThrottleMiddleware implements MiddlewareInterface
      * @param LoggerInterface|null $logger
      */
     public function __construct(
-        int $defaultMaxRequests = 60,
-        int $defaultMinutes = 1,
+        int $maxRequests = 60,
+        int $minutes = 1,
         ?LoggerInterface $logger = null
     ) {
-        $this->defaultMaxRequests = $defaultMaxRequests;
-        $this->defaultMinutes = $defaultMinutes;
+        $this->maxRequests = $maxRequests;
+        $this->minutes = $minutes;
         $this->logger = $logger ?? (function_exists('app') ? app(LoggerInterface::class) : null);
     }
 
@@ -62,8 +62,8 @@ class ThrottleMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         // Get rate limits from request attributes or use defaults
-        $maxRequests = $this->defaultMaxRequests;
-        $minutes = $this->defaultMinutes;
+        $maxRequests = $this->maxRequests;
+        $minutes = $this->minutes;
 
         if ($this->logger) {
             $this->logger->debug("Throttle middleware using limits: {$maxRequests} requests per {$minutes} minute(s)");
