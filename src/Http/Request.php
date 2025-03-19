@@ -9,14 +9,16 @@
 
 namespace Ody\Foundation\Http;
 
+use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Nyholm\Psr7\ServerRequest;
+use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
 use Nyholm\Psr7Server\ServerRequestCreator;
+use Swoole\Http\Request as SwooleRequest;
 
 /**
  * PSR-7 compatible HTTP Request
@@ -24,24 +26,17 @@ use Nyholm\Psr7Server\ServerRequestCreator;
 class Request implements ServerRequestInterface
 {
     /**
-     * @var ServerRequestInterface PSR-7 server request
+     * @var ServerRequestInterface Internal PSR-7 implementation
      */
     private ServerRequestInterface $psrRequest;
 
     /**
      * @var array Route parameters
      */
-    public array $routeParams = [];
+    private array $routeParams = [];
 
     /**
-     * @var array Middleware parameters
-     */
-    public array $middlewareParams = [];
-
-    /**
-     * Request constructor
-     *
-     * @param ServerRequestInterface $request
+     * Constructor
      */
     public function __construct(ServerRequestInterface $request)
     {
@@ -49,24 +44,194 @@ class Request implements ServerRequestInterface
     }
 
     /**
-     * Create request from globals
-     *
-     * @return self
+     * Create a request from globals or context manager
      */
     public static function createFromGlobals(): self
     {
-        $psr17Factory = new Psr17Factory();
+        $factory = new Psr17Factory();
 
-        $creator = new ServerRequestCreator(
-            $psr17Factory, // ServerRequestFactory
-            $psr17Factory, // UriFactory
-            $psr17Factory, // UploadedFileFactory
-            $psr17Factory  // StreamFactory
+        // First check if we're in a Swoole environment with ContextManager
+        if (extension_loaded('swoole') && class_exists('\Swoole\Coroutine') &&
+            method_exists('\Swoole\Coroutine', 'getContext')) {
+
+            // Get request data from ContextManager
+            $server = ContextManager::get('_SERVER') ?? [];
+            $get = ContextManager::get('_GET') ?? [];
+            $post = ContextManager::get('_POST') ?? [];
+            $cookie = ContextManager::get('_COOKIE') ?? [];
+            $files = ContextManager::get('_FILES') ?? [];
+
+            // If we have server data in the context, we're in a Swoole request
+            if (!empty($server)) {
+                // Create URI from context server data
+                $uri = self::createUriFromServerArray($server, $factory);
+                $method = $server['request_method'] ?? 'GET';
+                $protocol = isset($server['server_protocol']) ?
+                    str_replace('HTTP/', '', $server['server_protocol']) : '1.1';
+
+                // Get headers from server array
+                $headers = self::getHeadersFromServerArray($server);
+
+                // Create a stream for the request body
+                // Note: In Swoole context, we'd ideally have access to the raw content
+                $body = $factory->createStream('');
+
+                $request = new NyholmServerRequest(
+                    $method,
+                    $uri,
+                    $headers,
+                    $body,
+                    $protocol,
+                    $server
+                );
+
+                return new self(
+                    $request
+                        ->withCookieParams($cookie)
+                        ->withQueryParams($get)
+                        ->withParsedBody($post)
+                        ->withUploadedFiles(normalizeUploadedFiles($files))
+                );
+            }
+        }
+
+        // Fall back to PHP globals for traditional environment
+        $uri = self::createUriFromServerArray($_SERVER, $factory);
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $body = $factory->createStreamFromFile('php://input');
+        $headers = self::getHeadersFromServerArray($_SERVER);
+
+        $request = new NyholmServerRequest(
+            $method,
+            $uri,
+            $headers,
+            $body,
+            $_SERVER['SERVER_PROTOCOL'] ?? '1.1',
+            $_SERVER
         );
 
-        $serverRequest = $creator->fromGlobals();
+        return new self(
+            $request
+                ->withCookieParams($_COOKIE)
+                ->withQueryParams($_GET)
+                ->withParsedBody($_POST)
+                ->withUploadedFiles(normalizeUploadedFiles($_FILES))
+        );
+    }
 
-        return new self($serverRequest);
+    /**
+     * Create a request from a Swoole request
+     */
+    public static function createFromSwooleRequest(SwooleRequest $swooleRequest): self
+    {
+        $factory = new Psr17Factory();
+
+        // Extract server params
+        $server = $swooleRequest->server ?? [];
+
+        // Create URI
+        $uri = self::createUriFromServerArray($server, $factory);
+
+        // Create basic request
+        $method = $server['request_method'] ?? 'GET';
+        $protocol = isset($server['server_protocol']) ?
+            str_replace('HTTP/', '', $server['server_protocol']) : '1.1';
+
+        // Create body stream
+        $body = $factory->createStream($swooleRequest->rawContent() ?? '');
+
+        // Convert Swoole headers to PSR-7 format
+        $headers = [];
+        foreach ($swooleRequest->header ?? [] as $name => $value) {
+            $headers[str_replace('_', '-', $name)] = $value;
+        }
+
+        $request = new NyholmServerRequest(
+            $method,
+            $uri,
+            $headers,
+            $body,
+            $protocol,
+            $server
+        );
+
+        // Add additional request data
+        $request = $request
+            ->withCookieParams($swooleRequest->cookie ?? [])
+            ->withQueryParams($swooleRequest->get ?? [])
+            ->withParsedBody($swooleRequest->post ?? [])
+            ->withUploadedFiles(normalizeUploadedFiles($swooleRequest->files ?? []));
+
+        return new self($request);
+    }
+
+    /**
+     * Create a URI from server parameters
+     */
+    private static function createUriFromServerArray(array $server, Psr17Factory $factory): \Psr\Http\Message\UriInterface
+    {
+        // Determine scheme
+        $https = $server['HTTPS'] ?? '';
+        $scheme = (empty($https) || $https === 'off') ? 'http' : 'https';
+
+        // Determine host
+        $host = $server['HTTP_HOST'] ?? '';
+        if (empty($host)) {
+            $host = $server['SERVER_NAME'] ?? '';
+            if (empty($host)) {
+                $host = $server['SERVER_ADDR'] ?? '';
+            }
+        }
+
+        // Determine port
+        $port = $server['SERVER_PORT'] ?? null;
+
+        // Determine path and query
+        $requestUri = $server['REQUEST_URI'] ?? '';
+        $path = '/';
+        $query = '';
+
+        if (!empty($requestUri)) {
+            $parts = parse_url($requestUri);
+            if ($parts !== false) {
+                $path = $parts['path'] ?? '/';
+                $query = $parts['query'] ?? '';
+            }
+        }
+
+        // Create URI
+        $uri = $factory->createUri('')
+            ->withScheme($scheme)
+            ->withHost($host)
+            ->withPath($path);
+
+        if (!empty($query)) {
+            $uri = $uri->withQuery($query);
+        }
+
+        if (!empty($port)) {
+            $uri = $uri->withPort((int)$port);
+        }
+
+        return $uri;
+    }
+
+    /**
+     * Extract headers from server array
+     */
+    private static function getHeadersFromServerArray(array $server): array
+    {
+        $headers = [];
+        foreach ($server as $key => $value) {
+            if (strpos($key, 'HTTP_') === 0) {
+                $name = str_replace('_', '-', substr($key, 5));
+                $headers[$name] = $value;
+            } elseif (in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH'])) {
+                $name = str_replace('_', '-', $key);
+                $headers[$name] = $value;
+            }
+        }
+        return $headers;
     }
 
     /**
@@ -350,5 +515,17 @@ class Request implements ServerRequestInterface
     public function getPsrRequest(): ServerRequestInterface
     {
         return $this->psrRequest;
+    }
+
+    public function getRouteParams(): array
+    {
+        return $this->routeParams;
+    }
+
+    public function withRouteParams(array $params): self
+    {
+        $new = clone $this;
+        $new->routeParams = $params;
+        return $new;
     }
 }
