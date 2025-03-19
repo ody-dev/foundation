@@ -93,5 +93,6 @@ class HttpServer
         ContextManager::set('_FILES', (array)$request->files);
         ContextManager::set('_COOKIE', (array)$request->cookie);
         ContextManager::set('_SERVER', (array)$request->server);
+        ContextManager::set('_REQUEST_ID', 'cid:' . uniqid(Coroutine::getCid() . ':', true));
     }
 }

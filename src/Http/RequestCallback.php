@@ -2,6 +2,7 @@
 namespace Ody\Foundation\Http;
 
 use Ody\Foundation\Application;
+use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
@@ -22,12 +23,25 @@ final class RequestCallback
 
     public function handle(Request $request, Response $response): void
     {
+        // Get the request ID from context if available
+        $requestId = ContextManager::get('_REQUEST_ID') ?? 'unknown';
+
         try {
             // Convert Swoole request to PSR-7
             $serverRequest = $this->createServerRequest($request);
 
+            // Log the request start with request ID
+            logger()->debug("Processing request", [
+                'request_id' => $requestId,
+                'method' => $serverRequest->getMethod(),
+                'path' => $serverRequest->getUri()->getPath()
+            ]);
+
             // Directly handle the request without reinitializing
             $psrResponse = $this->handler->handle($serverRequest);
+
+            // Add the request ID to the response header for tracing
+            $psrResponse = $psrResponse->withHeader('X-Request-ID', $requestId);
 
             // Convert PSR-7 response to Swoole response
             $this->emit($psrResponse, $response);
@@ -37,6 +51,7 @@ final class RequestCallback
                 : null;
 
             $errorContext = [
+                'request_id' => $requestId,
                 'exception' => get_class($e),
                 'message' => $e->getMessage(),
                 'code' => $e->getCode(),
@@ -54,18 +69,24 @@ final class RequestCallback
                 logger()->critical('Unhandled exception in request handling', $errorContext);
             }
 
-            // Send error response
+            // Send error response with request ID
             $response->status(500);
             $response->header('Content-Type', 'application/json');
+            $response->header('X-Request-ID', $requestId);
             $response->end(json_encode([
                 'error' => 'Internal Server Error',
-                'message' => env('APP_DEBUG', false) ? $e->getMessage() : 'Server Error'
+                'message' => env('APP_DEBUG', false) ? $e->getMessage() : 'Server Error',
+                'request_id' => $requestId
             ]));
         } finally {
-            // ensure middleware is terminated
+            // Ensure middleware is terminated
             if (isset($serverRequest) && isset($psrResponse)) {
+                // Pass the request ID for targeted context cleanup
                 $this->handler->getMiddlewareManager()->terminate($serverRequest, $psrResponse);
             }
+
+            // Optional: clear just this specific context key if not handled by middleware manager
+            // ContextManager::delete('request_id');
         }
     }
 
