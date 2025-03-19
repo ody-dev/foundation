@@ -108,6 +108,11 @@ class Stream implements StreamInterface, Stringable
      */
     public function attach($resource, string $mode = 'r'): void
     {
+        // Close the existing resource if it exists
+        if ($this->resource !== null) {
+            $this->close();
+        }
+
         $this->setStream($resource, $mode);
     }
 
@@ -369,5 +374,13 @@ class Stream implements StreamInterface, Stringable
         }
 
         return false;
+    }
+
+    /**
+     * Destructor - ensures resources are closed when object is destroyed
+     */
+    public function __destruct()
+    {
+        $this->close();
     }
 }

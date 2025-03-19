@@ -35,9 +35,27 @@ final class RequestCallback
                 $this->handler->getMiddlewareManager()->terminate($serverRequest, $psrResponse);
             }
         } catch (\Throwable $e) {
-            // Log any exceptions
-            error_log("RequestCallback Exception: " . $e->getMessage());
-            error_log($e->getTraceAsString());
+            $logger = $this->handler instanceof Application
+                ? $this->handler->getLogger()
+                : null;
+
+            $errorContext = [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'request_method' => $request->server['request_method'] ?? 'UNKNOWN',
+                'request_uri' => $request->server['request_uri'] ?? 'UNKNOWN',
+                'client_ip' => $request->server['remote_addr'] ?? 'UNKNOWN'
+            ];
+
+            if ($logger) {
+                $logger->error('Unhandled exception in request handling', $errorContext);
+            } else {
+                error_log("CRITICAL ERROR: " . json_encode($errorContext, JSON_PRETTY_PRINT));
+            }
 
             // Send error response
             $response->status(500);
@@ -48,8 +66,8 @@ final class RequestCallback
             ]));
         } finally {
             // ensure middleware is terminated
-            if (isset($psrRequest) && isset($psrResponse)) {
-                $this->handler->getMiddlewareManager()->terminate($psrRequest, $psrResponse);
+            if (isset($serverRequest) && isset($psrResponse)) {
+                $this->handler->getMiddlewareManager()->terminate($serverRequest, $psrResponse);
             }
         }
     }
