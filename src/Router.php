@@ -6,8 +6,6 @@ use FastRoute\RouteCollector;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Middleware\MiddlewarePipeline;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
 use function FastRoute\simpleDispatcher;
 
 class Router
@@ -299,17 +297,25 @@ class Router
      * @param callable $finalHandler
      * @return MiddlewarePipeline
      */
-    protected function createMiddlewarePipeline(array $middlewareStack, callable $finalHandler): MiddlewarePipeline
+    protected function createMiddlewarePipeline(array $middlewareStack, callable $finalHandler): Middleware\MiddlewarePipeline
     {
-        logger()->debug('possibly unused method createMiddlewarePipeline() Router.php');
-        $registry = $this->middlewareManager->getRegistry();
+        // Create a pipeline with the final handler
+        $pipeline = new Middleware\MiddlewarePipeline($finalHandler);
 
-        return new MiddlewarePipeline(
-            $registry,
-            $middlewareStack,
-            $finalHandler,
-            $this->container->make('logger')
-        );
+        // Resolve and add each middleware to the pipeline
+        foreach ($middlewareStack as $middleware) {
+            try {
+                $instance = $this->middlewareManager->resolve($middleware);
+                $pipeline->add($instance);
+            } catch (\Throwable $e) {
+                logger()->error("Failed to resolve middleware", [
+                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return $pipeline;
     }
 
     /**

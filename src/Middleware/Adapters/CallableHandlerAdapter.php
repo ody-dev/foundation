@@ -21,7 +21,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 class CallableHandlerAdapter implements RequestHandlerInterface
 {
     /**
-     * @var callable The next handler function
+     * @var callable The handler function
      */
     private $handler;
 

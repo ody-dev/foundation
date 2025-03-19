@@ -9,11 +9,11 @@
 
 namespace Ody\Foundation\Middleware;
 
-use Psr\Log\LoggerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Logging Middleware (PSR-15) with route filtering
@@ -55,6 +55,8 @@ class LoggingMiddleware implements MiddlewareInterface
     {
         $startTime = microtime(true);
         $path = $request->getUri()->getPath();
+
+        logger()->debug("Logging middleware started at $startTime");
 
         // Check if this path should be excluded from logging
         $shouldLog = !$this->isPathExcluded($path);

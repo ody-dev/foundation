@@ -11,14 +11,19 @@ namespace Ody\Foundation\Middleware;
 
 use Ody\Container\Container;
 use Ody\Foundation\Middleware\Adapters\CallableMiddlewareAdapter;
+use Ody\Foundation\Middleware\Attributes\Middleware;
+use Ody\Foundation\Middleware\Attributes\MiddlewareGroup;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use ReflectionClass;
+use ReflectionMethod;
 
 /**
- * Unified Middleware Registry
+ * Middleware Registry
  *
- * Manages middleware registration, resolution, and pipeline building.
+ * A consolidated registry that handles middleware registration, resolution, and attribute-based discovery.
+ * Combines functionality from MiddlewareRegistry, MiddlewareResolutionCache, and AttributeResolver.
  */
 class MiddlewareRegistry
 {
@@ -58,6 +63,16 @@ class MiddlewareRegistry
     protected array $resolved = [];
 
     /**
+     * @var array Cache of resolved controller middleware
+     */
+    protected array $controllerCache = [];
+
+    /**
+     * @var array Cache of resolved method middleware
+     */
+    protected array $methodCache = [];
+
+    /**
      * @var bool Whether to collect cache statistics
      */
     protected bool $collectStats;
@@ -75,9 +90,9 @@ class MiddlewareRegistry
      * @param bool $collectStats Whether to collect cache statistics
      */
     public function __construct(
-        Container        $container,
+        Container $container,
         ?LoggerInterface $logger = null,
-        bool             $collectStats = false
+        bool      $collectStats = false
     )
     {
         $this->container = $container;
@@ -91,76 +106,59 @@ class MiddlewareRegistry
      * @param string $method HTTP method
      * @param string $path Route path
      * @param mixed $middleware
-     * @param string|null $id Optional identifier (generated if not provided)
      * @return self
      */
-    public function forRoute(string $method, string $path, $middleware, ?string $id = null): self
+    public function addForRoute(string $method, string $path, $middleware): self
     {
-        $id = $id ?? $this->generateId($middleware);
-        return $this->register($id, $middleware, [
-            'type' => 'route',
+        $routeKey = $this->formatRouteKey($method, $path);
+        if (!isset($this->routes[$routeKey])) {
+            $this->routes[$routeKey] = [];
+        }
+        $this->routes[$routeKey][] = $middleware;
+
+        $this->logger->debug("Registered route middleware", [
             'method' => $method,
             'path' => $path
         ]);
+
+        return $this;
     }
 
     /**
-     * Generate an identifier for a middleware
+     * Register a global middleware
      *
      * @param mixed $middleware
-     * @return string
+     * @return self
      */
-    protected function generateId($middleware): string
+    public function global($middleware): self
     {
-        if (is_string($middleware)) {
-            return 'middleware_' . md5($middleware);
-        }
-
-        if (is_object($middleware)) {
-            return 'middleware_' . get_class($middleware) . '_' . spl_object_id($middleware);
-        }
-
-        return 'middleware_' . md5(serialize($middleware));
+        $this->global[] = $middleware;
+        return $this;
     }
 
     /**
-     * Register a middleware with the registry
+     * Register a named middleware
      *
-     * @param string $id Unique identifier for the middleware
-     * @param mixed $middleware The middleware to register
-     * @param array $options Registration options
+     * @param string $name
+     * @param mixed $middleware
      * @return self
      */
-    public function register(string $id, $middleware, array $options = []): self
+    public function named(string $name, $middleware): self
     {
-        $options = array_merge([
-            'type' => 'global',  // global, route, named, or group
-            'method' => null,    // for route-specific middleware
-            'path' => null,      // for route-specific middleware
-            'middlewareList' => [], // for groups
-        ], $options);
+        $this->named[$name] = $middleware;
+        return $this;
+    }
 
-        switch ($options['type']) {
-            case 'global':
-                $this->global[$id] = $middleware;
-                break;
-            case 'route':
-                $routeKey = $this->formatRouteKey($options['method'], $options['path']);
-                if (!isset($this->routes[$routeKey])) {
-                    $this->routes[$routeKey] = [];
-                }
-                $this->routes[$routeKey][$id] = $middleware;
-                break;
-            case 'named':
-                $this->named[$id] = $middleware;
-                break;
-            case 'group':
-                $this->groups[$id] = $options['middlewareList'];
-                break;
-        }
-
-        logger()->debug("Registered middleware: {$id}", ['type' => $options['type']]);
-
+    /**
+     * Register a middleware group
+     *
+     * @param string $name
+     * @param array $middlewareList
+     * @return self
+     */
+    public function group(string $name, array $middlewareList): self
+    {
+        $this->groups[$name] = $middlewareList;
         return $this;
     }
 
@@ -177,102 +175,6 @@ class MiddlewareRegistry
     }
 
     /**
-     * Load middleware configuration from array
-     *
-     * @param array $config
-     * @return self
-     */
-    public function fromConfig(array $config): self
-    {
-        // Register named middleware
-        if (isset($config['named']) && is_array($config['named'])) {
-            $this->registerNamedMiddleware($config['named']);
-        }
-
-        // Register groups
-        if (isset($config['groups']) && is_array($config['groups'])) {
-            $this->registerGroups($config['groups']);
-        }
-
-        // Register global middleware
-        if (isset($config['global']) && is_array($config['global'])) {
-            foreach ($config['global'] as $middleware) {
-                $this->global($middleware);
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * Register multiple named middleware
-     *
-     * @param array $namedMiddleware
-     * @return self
-     */
-    public function registerNamedMiddleware(array $namedMiddleware): self
-    {
-        foreach ($namedMiddleware as $name => $middleware) {
-            $this->name($name, $middleware);
-        }
-        return $this;
-    }
-
-    /**
-     * Register a named middleware
-     *
-     * @param string $name
-     * @param mixed $middleware
-     * @return self
-     */
-    public function name(string $name, $middleware): self
-    {
-        return $this->register($name, $middleware, ['type' => 'named']);
-    }
-
-    /**
-     * Register multiple middleware groups
-     *
-     * @param array $groups
-     * @return self
-     */
-    public function registerGroups(array $groups): self
-    {
-        foreach ($groups as $name => $middlewareList) {
-            $this->group($name, $middlewareList);
-        }
-        return $this;
-    }
-
-    /**
-     * Register a middleware group
-     *
-     * @param string $name
-     * @param array $middlewareList
-     * @return self
-     */
-    public function group(string $name, array $middlewareList): self
-    {
-        return $this->register($name, null, [
-            'type' => 'group',
-            'middlewareList' => $middlewareList
-        ]);
-    }
-
-    /**
-     * Register a global middleware
-     *
-     * @param mixed $middleware
-     * @param string|null $id Optional identifier (generated if not provided)
-     * @return self
-     */
-    public function global($middleware, ?string $id = null): self
-    {
-        $id = $id ?? $this->generateId($middleware);
-        return $this->register($id, $middleware, ['type' => 'global']);
-    }
-
-    /**
      * Build a middleware pipeline for a specific route
      *
      * @param string $method HTTP method
@@ -285,50 +187,95 @@ class MiddlewareRegistry
         $middlewareList = array_values($this->global);
 
         // Add route-specific middleware if any
-        $routeKey = rtrim($this->formatRouteKey($method, $path), '/');
+        $routeKey = $this->formatRouteKey($method, $path);
         if (isset($this->routes[$routeKey])) {
-            $middlewareList = array_merge($middlewareList, array_values($this->routes[$routeKey]));
+            $middlewareList = array_merge($middlewareList, $this->routes[$routeKey]);
         }
 
         // Process and expand the middleware list
-        return $this->expandMiddlewareList($middlewareList);
+        return $this->expandMiddleware($middlewareList);
     }
 
     /**
-     * Expand middleware list, resolving names and groups
+     * Get all middleware for a route, including controller attributes if provided
      *
-     * @param array $middlewareList
+     * @param string $method HTTP method
+     * @param string $path Route path
+     * @param string|object|null $controller Controller class or instance
+     * @param string|null $action Controller method name
+     * @return array Combined middleware list
+     */
+    public function getMiddlewareForRoute(
+        string  $method,
+        string  $path,
+                $controller = null,
+        ?string $action = null
+    ): array
+    {
+        // Get route middleware
+        $middlewareList = $this->buildPipeline($method, $path);
+
+        // If controller and method are provided, get attribute middleware
+        if ($controller && $action) {
+            $attributeMiddleware = $this->getMiddleware($controller, $action);
+            $middlewareList = array_merge($middlewareList, $this->convertAttributeFormat($attributeMiddleware));
+        }
+
+        return $middlewareList;
+    }
+
+    /**
+     * Convert attribute middleware to standard format
+     *
+     * @param array $attributeMiddleware
      * @return array
      */
-    public function expandMiddlewareList(array $middlewareList): array
+    protected function convertAttributeFormat(array $attributeMiddleware): array
     {
-        $expanded = [];
+        $result = [];
 
-        foreach ($middlewareList as $middleware) {
-            // If it's a string that might be a named middleware or group
-            if (is_string($middleware)) {
+        foreach ($attributeMiddleware as $middleware) {
+            if (isset($middleware['class'])) {
+                $result[] = $middleware['class'];
+            } elseif (isset($middleware['group'])) {
+                $result[] = $middleware['group'];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Expand middleware references (resolve named middleware and groups)
+     *
+     * @param array $middleware
+     * @return array
+     */
+    protected function expandMiddleware(array $middleware): array
+    {
+        $result = [];
+
+        foreach ($middleware as $item) {
+            if (is_string($item)) {
                 // Check if it's a named middleware
-                if (isset($this->named[$middleware])) {
-                    $namedMiddleware = $this->named[$middleware];
-
-                    $expanded[] = $namedMiddleware;
+                if (isset($this->named[$item])) {
+                    $result[] = $this->named[$item];
                     continue;
                 }
 
                 // Check if it's a middleware group
-                if (isset($this->groups[$middleware])) {
-                    // Recursively expand the group
-                    $groupMiddleware = $this->expandMiddlewareList($this->groups[$middleware]);
-                    $expanded = array_merge($expanded, $groupMiddleware);
+                if (isset($this->groups[$item])) {
+                    $expanded = $this->expandMiddleware($this->groups[$item]);
+                    $result = array_merge($result, $expanded);
                     continue;
                 }
             }
 
             // Add the middleware as is
-            $expanded[] = $middleware;
+            $result[] = $item;
         }
 
-        return $expanded;
+        return $result;
     }
 
     /**
@@ -340,7 +287,7 @@ class MiddlewareRegistry
      */
     public function resolve($middleware): MiddlewareInterface
     {
-        // If it's already an instance, return it
+        // If already an instance, return it
         if ($middleware instanceof MiddlewareInterface) {
             return $middleware;
         }
@@ -387,24 +334,27 @@ class MiddlewareRegistry
     protected function getCacheKey($middleware): string
     {
         if (is_string($middleware)) {
-            return 'string:' . $middleware;
+            return 'str:' . $middleware;
         }
 
         if (is_array($middleware)) {
-            return 'array:' . (is_object($middleware[0])
-                    ? get_class($middleware[0])
-                    : (string)$middleware[0]) . '::' . (string)$middleware[1];
+            if (count($middleware) === 2 && is_callable($middleware)) {
+                return 'arr:' . (is_object($middleware[0])
+                        ? get_class($middleware[0])
+                        : (string)$middleware[0]) . '::' . (string)$middleware[1];
+            }
+            return 'arr:' . md5(serialize($middleware));
         }
 
         if (is_object($middleware)) {
-            return 'object:' . get_class($middleware) . ':' . spl_object_id($middleware);
+            return 'obj:' . get_class($middleware) . ':' . spl_object_hash($middleware);
         }
 
         return 'other:' . gettype($middleware);
     }
 
     /**
-     * Resolve a middleware to an instance
+     * Resolve middleware from various formats
      *
      * @param mixed $middleware
      * @return MiddlewareInterface
@@ -448,43 +398,209 @@ class MiddlewareRegistry
     }
 
     /**
-     * Get all registered global middleware
+     * Get middleware for a controller and method
      *
-     * @return array
+     * @param string|object $controller Controller class or instance
+     * @param string $method Method name
+     * @return array Combined middleware list for the controller and method
      */
-    public function getGlobalMiddleware(): array
+    public function getMiddleware($controller, string $method): array
     {
-        return $this->global;
+        // Get the controller class name
+        $controllerClass = is_object($controller) ? get_class($controller) : $controller;
+
+        // Create a unique key for the controller method
+        $methodKey = $controllerClass . '@' . $method;
+
+        // Return from cache if available
+        if (isset($this->methodCache[$methodKey])) {
+            return $this->methodCache[$methodKey];
+        }
+
+        // Get controller-level middleware
+        $controllerMiddleware = $this->getControllerMiddleware($controllerClass);
+
+        // Get method-level middleware
+        $methodMiddleware = $this->getMethodMiddleware($controllerClass, $method);
+
+        // Combine the middleware lists (method-level middleware takes precedence)
+        $combinedMiddleware = array_merge($controllerMiddleware, $methodMiddleware);
+
+        // Cache the result
+        $this->methodCache[$methodKey] = $combinedMiddleware;
+
+        $this->logger->debug("Resolved middleware for {$methodKey}", [
+            'count' => count($combinedMiddleware)
+        ]);
+
+        return $combinedMiddleware;
     }
 
     /**
-     * Get all registered route middleware
+     * Get middleware defined at the controller class level
      *
+     * @param string $controllerClass
      * @return array
      */
-    public function getRouteMiddleware(): array
+    protected function getControllerMiddleware(string $controllerClass): array
     {
-        return $this->routes;
+        // Return from cache if available
+        if (isset($this->controllerCache[$controllerClass])) {
+            return $this->controllerCache[$controllerClass];
+        }
+
+        // Check if class exists
+        if (!class_exists($controllerClass)) {
+            $this->logger->warning("Controller class not found: {$controllerClass}");
+            return [];
+        }
+
+        $middleware = [];
+
+        try {
+            $reflectionClass = new ReflectionClass($controllerClass);
+
+            // Get middleware attributes
+            $middlewareAttributes = $reflectionClass->getAttributes(Middleware::class);
+            foreach ($middlewareAttributes as $attribute) {
+                $instance = $attribute->newInstance();
+                $middlewareClass = $instance->getMiddleware();
+                $parameters = $instance->getParameters();
+
+                if (is_array($middlewareClass)) {
+                    // Handle array of middleware
+                    foreach ($middlewareClass as $mw) {
+                        $middleware[] = [
+                            'class' => $mw,
+                            'parameters' => $parameters
+                        ];
+                    }
+                } else {
+                    // Handle single middleware
+                    $middleware[] = [
+                        'class' => $middlewareClass,
+                        'parameters' => $parameters
+                    ];
+                }
+            }
+
+            // Get middleware group attributes
+            $groupAttributes = $reflectionClass->getAttributes(MiddlewareGroup::class);
+            foreach ($groupAttributes as $attribute) {
+                $instance = $attribute->newInstance();
+                $middleware[] = [
+                    'group' => $instance->getGroupName(),
+                    'parameters' => []
+                ];
+            }
+
+        } catch (\Throwable $e) {
+            $this->logger->error("Error resolving controller middleware: {$e->getMessage()}", [
+                'controller' => $controllerClass,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // Cache the result
+        $this->controllerCache[$controllerClass] = $middleware;
+
+        return $middleware;
     }
 
     /**
-     * Get all named middleware
+     * Get middleware defined at the method level
      *
+     * @param string $controllerClass
+     * @param string $method
      * @return array
      */
-    public function getNamedMiddleware(): array
+    protected function getMethodMiddleware(string $controllerClass, string $method): array
     {
-        return $this->named;
+        // Check if class and method exist
+        if (!class_exists($controllerClass) || !method_exists($controllerClass, $method)) {
+            return [];
+        }
+
+        $middleware = [];
+
+        try {
+            $reflectionMethod = new ReflectionMethod($controllerClass, $method);
+
+            // Get middleware attributes
+            $middlewareAttributes = $reflectionMethod->getAttributes(Middleware::class);
+            foreach ($middlewareAttributes as $attribute) {
+                $instance = $attribute->newInstance();
+                $middlewareClass = $instance->getMiddleware();
+                $parameters = $instance->getParameters();
+
+                if (is_array($middlewareClass)) {
+                    // Handle array of middleware
+                    foreach ($middlewareClass as $mw) {
+                        $middleware[] = [
+                            'class' => $mw,
+                            'parameters' => $parameters
+                        ];
+                    }
+                } else {
+                    // Handle single middleware
+                    $middleware[] = [
+                        'class' => $middlewareClass,
+                        'parameters' => $parameters
+                    ];
+                }
+            }
+
+            // Get middleware group attributes
+            $groupAttributes = $reflectionMethod->getAttributes(MiddlewareGroup::class);
+            foreach ($groupAttributes as $attribute) {
+                $instance = $attribute->newInstance();
+                $middleware[] = [
+                    'group' => $instance->getGroupName(),
+                    'parameters' => []
+                ];
+            }
+
+        } catch (\Throwable $e) {
+            $this->logger->error("Error resolving method middleware: {$e->getMessage()}", [
+                'controller' => $controllerClass,
+                'method' => $method,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return $middleware;
     }
 
     /**
-     * Get all middleware groups
+     * Load middleware configuration from array
      *
-     * @return array
+     * @param array $config
+     * @return self
      */
-    public function getGroups(): array
+    public function fromConfig(array $config): self
     {
-        return $this->groups;
+        // Register named middleware
+        if (isset($config['named']) && is_array($config['named'])) {
+            foreach ($config['named'] as $name => $middleware) {
+                $this->named($name, $middleware);
+            }
+        }
+
+        // Register groups
+        if (isset($config['groups']) && is_array($config['groups'])) {
+            foreach ($config['groups'] as $name => $middlewareList) {
+                $this->group($name, $middlewareList);
+            }
+        }
+
+        // Register global middleware
+        if (isset($config['global']) && is_array($config['global'])) {
+            foreach ($config['global'] as $middleware) {
+                $this->global($middleware);
+            }
+        }
+
+        return $this;
     }
 
     /**
@@ -497,7 +613,9 @@ class MiddlewareRegistry
         return [
             'cached_middleware' => count($this->resolved),
             'cache_hits' => $this->cacheHits,
-            'total_hits' => array_sum($this->cacheHits)
+            'total_hits' => array_sum($this->cacheHits),
+            'controller_cache' => count($this->controllerCache),
+            'method_cache' => count($this->methodCache)
         ];
     }
 
@@ -509,6 +627,8 @@ class MiddlewareRegistry
     public function clearCache(): self
     {
         $this->resolved = [];
+        $this->controllerCache = [];
+        $this->methodCache = [];
         $this->cacheHits = [];
         return $this;
     }

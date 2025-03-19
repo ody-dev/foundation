@@ -69,7 +69,7 @@ class Route
             // Store the middleware reference
             $this->middlewareList[] = $m;
 
-            // Register with the middleware manager using the new registry
+            // Register with the middleware manager using the simplified registry
             $this->middlewareManager->addForRoute($this->method, $this->path, $m);
         }
 

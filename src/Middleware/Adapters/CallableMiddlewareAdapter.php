@@ -27,15 +27,16 @@ class CallableMiddlewareAdapter implements MiddlewareInterface
     private $middleware;
 
     /**
-     * @var array Additional parameters to use when invoking the middleware
+     * @var array Optional parameters to pass to the middleware
      */
     private array $parameters;
 
     /**
      * Constructor
      *
-     * @param callable $middleware The middleware function with signature function(ServerRequestInterface $request, callable $next): ResponseInterface
-     * @param array $parameters Additional parameters to pass to the middleware
+     * @param callable $middleware The middleware function with signature:
+     *                            function(ServerRequestInterface $request, callable $next, array $params = []): ResponseInterface
+     * @param array $parameters Optional parameters to pass to the middleware
      */
     public function __construct(callable $middleware, array $parameters = [])
     {
@@ -52,28 +53,14 @@ class CallableMiddlewareAdapter implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        // Create a next handler function that passes the request to the handler
+        // Create a next handler function
         $next = function (ServerRequestInterface $request) use ($handler): ResponseInterface {
             return $handler->handle($request);
         };
 
-        // Call the middleware with the request, next handler, and any additional parameters
-        if (empty($this->parameters)) {
-            return call_user_func($this->middleware, $request, $next);
-        } else {
-            return call_user_func($this->middleware, $request, $next, $this->parameters);
-        }
-    }
-
-    /**
-     * Create a new instance from a callable
-     *
-     * @param callable $middleware
-     * @param array $parameters
-     * @return self
-     */
-    public static function fromCallable(callable $middleware, array $parameters = []): self
-    {
-        return new self($middleware, $parameters);
+        // Call the middleware with the request, next handler, and any parameters
+        return empty($this->parameters)
+            ? call_user_func($this->middleware, $request, $next)
+            : call_user_func($this->middleware, $request, $next, $this->parameters);
     }
 }

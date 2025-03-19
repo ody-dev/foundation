@@ -10,12 +10,12 @@
 namespace Ody\Foundation;
 
 use Ody\Container\Container;
+use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Http\ControllerDispatcher;
 use Ody\Foundation\Http\ControllerResolver;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
 use Ody\Foundation\Http\ResponseEmitter;
-use Ody\Foundation\Middleware\AttributeResolver;
 use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
@@ -248,6 +248,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             // Add route parameters to the request
             foreach ($routeParams as $name => $value) {
                 $request = $request->withAttribute($name, $value);
+                ContextManager::set('_action', $routeInfo['action']);
             }
 
             // Check if this is a controller route with attribute support
@@ -302,7 +303,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     ): ResponseInterface {
         // Get middleware stack for the route
         $middlewareManager = $this->getMiddlewareManager();
-        $middlewareStack = $middlewareManager->getStackForRoute(
+        $middlewareStack = $middlewareManager->getMiddlewareForRoute(
             $request->getMethod(),
             $request->getUri()->getPath()
         );
@@ -310,19 +311,27 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         // Create a response object for the handler
         $response = new Response();
 
-        // Create a middleware pipeline
+        // Create a final handler for the route
         $finalHandler = function (ServerRequestInterface $request) use ($handler, $response, $routeParams) {
             // Pass both response and route params
             return call_user_func($handler, $request, $response, $routeParams);
         };
 
-        $registry = $middlewareManager->getRegistry();
-        $pipeline = new Middleware\MiddlewarePipeline(
-            $registry,
-            $middlewareStack,
-            $finalHandler,
-            $this->container->make('logger')
-        );
+        // Create a middleware pipeline from the simplified implementation
+        $pipeline = new Middleware\MiddlewarePipeline($finalHandler);
+
+        // Add resolved middleware instances to the pipeline
+        foreach ($middlewareStack as $middleware) {
+            try {
+                $instance = $middlewareManager->resolve($middleware);
+                $pipeline->add($instance);
+            } catch (\Throwable $e) {
+                $this->container->make('logger')->error('Error resolving middleware', [
+                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
 
         // Process the request through the middleware pipeline
         return $pipeline->handle($request);
@@ -332,6 +341,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * Get the controller dispatcher
      *
      * @return ControllerDispatcher
+     * @throws BindingResolutionException
      */
     protected function getControllerDispatcher(): ControllerDispatcher
     {
@@ -339,7 +349,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             $this->controllerDispatcher = new ControllerDispatcher(
                 $this->container,
                 new ControllerResolver($this->container, $this->container->make('logger')),
-                new AttributeResolver($this->container->make('logger')),
                 $this->getMiddlewareManager(),
                 $this->container->make('logger')
             );
