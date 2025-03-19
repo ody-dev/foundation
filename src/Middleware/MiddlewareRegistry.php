@@ -300,7 +300,7 @@ class MiddlewareRegistry
      * @param array $middlewareList
      * @return array
      */
-    protected function expandMiddlewareList(array $middlewareList): array
+    public function expandMiddlewareList(array $middlewareList): array
     {
         $expanded = [];
 

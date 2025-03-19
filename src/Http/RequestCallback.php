@@ -31,10 +31,6 @@ final class RequestCallback
 
             // Convert PSR-7 response to Swoole response
             $this->emit($psrResponse, $response);
-
-            if ($this->handler instanceof Application) {
-                $this->handler->getMiddlewareManager()->terminate($serverRequest, $psrResponse);
-            }
         } catch (\Throwable $e) {
             $logger = $this->handler instanceof Application
                 ? $this->handler->getLogger()

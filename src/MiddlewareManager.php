@@ -13,6 +13,8 @@ use Ody\Container\Container;
 use Ody\Foundation\Middleware\AttributeResolver;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
 use Ody\Foundation\Middleware\MiddlewareResolutionCache;
+use Ody\Foundation\Middleware\TerminatingMiddlewareInterface;
+use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -217,7 +219,49 @@ class MiddlewareManager
      */
     public function terminate(ServerRequestInterface $request, ResponseInterface $response): void
     {
-        // Handle terminating middleware execution here
-        // This would call terminate() on any middleware that implements TerminatingMiddlewareInterface
+        $method = $request->getMethod();
+        $path = $request->getUri()->getPath();
+
+        // Get controller/action info from request attributes
+        $controller = ContextManager::get('_controller');
+        $action = ContextManager::get('_action');
+
+        // If we have controller info, use getStackForControllerRoute
+        if ($controller && $action) {
+            $stack = $this->getStackForControllerRoute($method, $path, $controller, $action);
+        } else {
+            // Fall back to route-based middleware only
+            $stack = $this->getStackForRoute($method, $path);
+        }
+
+        logger()->debug('MiddlewareManager: terminate()', [
+            'count' => count($stack),
+            'has_controller' => !empty($controller),
+            'controller' => $controller,
+            'action' => $action
+        ]);
+
+        // Process all middleware for termination
+        foreach ($stack as $middleware) {
+            try {
+                // Resolve middleware instance
+                $instance = $this->resolveMiddleware($middleware);
+
+                // Check if it implements TerminatingMiddlewareInterface
+                if ($instance instanceof TerminatingMiddlewareInterface) {
+                    $this->logger->debug('Executing terminate() on middleware: ' .
+                        (is_object($instance) ? get_class($instance) : (is_string($instance) ? $instance : gettype($instance))));
+                    $instance->terminate($request, $response);
+                }
+            } catch (\Throwable $e) {
+                $this->logger->error('Error in terminating middleware', [
+                    'middleware' => is_object($middleware) ? get_class($middleware) : (is_string($middleware) ? $middleware : gettype($middleware)),
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+        // Clear all data from the context manager
+        // TODO: this has to happen at the end of each request.
+        ContextManager::clear();
     }
 }

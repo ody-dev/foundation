@@ -78,10 +78,6 @@ class HttpServer
                     }
                 }
             }
-
-            (new RequestCallback(
-                static::$app
-            ))->handle($request, $response);
         });
     }
 

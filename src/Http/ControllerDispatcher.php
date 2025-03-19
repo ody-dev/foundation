@@ -14,6 +14,7 @@ use Ody\Foundation\Middleware\AttributeResolver;
 use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Middleware\MiddlewarePipeline;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
+use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
@@ -89,7 +90,7 @@ class ControllerDispatcher
         string $method,
         array $routeParams = []
     ): ResponseInterface {
-        $this->logger->debug("Dispatching to controller: {$controllerClass}::{$method}");
+        logger()->debug("Dispatching to controller: {$controllerClass}::{$method}");
 
         try {
             // Create the controller instance
@@ -104,6 +105,9 @@ class ControllerDispatcher
                 $routeMethod, $routePath, $controllerClass, $method
             );
 
+            ContextManager::set('_controller', $controllerClass);
+            ContextManager::set('_action', $method);
+
             // Add route parameters to the request
             foreach ($routeParams as $name => $value) {
                 $request = $request->withAttribute($name, $value);
@@ -113,7 +117,7 @@ class ControllerDispatcher
             $finalHandler = function (ServerRequestInterface $request) use ($controller, $method, $routeParams) {
                 return $this->controllerResolver->callMethod(
                     $controller, $method, $request, $routeParams
-                );
+                    );
             };
 
             // Create a middleware pipeline

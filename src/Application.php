@@ -21,6 +21,7 @@ use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
@@ -161,6 +162,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * Bootstrap the application by loading providers
      *
      * @return self
+     * @throws Throwable
      */
     public function bootstrap(): self
     {
@@ -250,6 +252,8 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
 
             // Check if this is a controller route with attribute support
             if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
+                ContextManager::set('_controller', $routeInfo['controller']);
+                ContextManager::set('_action', $routeInfo['action']);
                 return $this->dispatchToController($request, $routeInfo['controller'], $routeInfo['action'], $routeParams);
             }
 
@@ -541,66 +545,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     public function getRouter(): Router
     {
         return $this->container->make(Router::class);
-    }
-
-    /**
-     * Create a handler function for the matched route
-     *
-     * @param array $routeInfo
-     * @return callable
-     */
-    private function createRouteHandler(array $routeInfo): callable
-    {
-        return function (ServerRequestInterface $request) use ($routeInfo) {
-            $response = new Response();
-
-            return match ($routeInfo['status']) {
-                'found' => $this->handleFoundRoute($request, $response, $routeInfo),
-                'method_not_allowed' => $this->handleMethodNotAllowed($response, $request, $routeInfo),
-                default => $this->handleNotFound($response, $request) // not found
-            };
-        };
-    }
-
-    /**
-     * Handle a found route
-     *
-     * @param ServerRequestInterface $request
-     * @param ResponseInterface $response
-     * @param array $routeInfo
-     * @return ResponseInterface
-     */
-    private function handleFoundRoute(
-        ServerRequestInterface $request,
-        ResponseInterface      $response,
-        array                  $routeInfo
-    ): ResponseInterface
-    {
-        try {
-            // Add route parameters to request attributes
-            foreach ($routeInfo['vars'] as $key => $value) {
-                $request = $request->withAttribute($key, $value);
-            }
-
-            // Call the route handler with the request, response and parameters
-            $result = call_user_func(
-                $routeInfo['handler'],
-                $request,
-                $response,
-                $routeInfo['vars']
-            );
-
-            // If a response was returned, use that
-            if ($result instanceof ResponseInterface) {
-                return $result;
-            }
-
-            // If nothing was returned, return the response
-            return $response;
-        } catch (Throwable $e) {
-            $this->logException($e, 'Error handling request');
-            return $this->createErrorResponse($response, 500, 'Internal Server Error');
-        }
     }
 
     /**

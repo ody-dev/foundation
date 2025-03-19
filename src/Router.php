@@ -4,6 +4,7 @@ namespace Ody\Foundation;
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Ody\Container\Container;
+use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Middleware\MiddlewarePipeline;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -15,11 +16,6 @@ class Router
      * Store all routes in a static property to persist between instances
      */
     private static array $allRoutes = [];
-
-    /**
-     * @var Dispatcher|null
-     */
-    private $dispatcher;
 
     /**
      * @var array
@@ -297,63 +293,6 @@ class Router
     }
 
     /**
-     * Dispatch a request through the router and middleware pipeline
-     *
-     * @param ServerRequestInterface $request
-     * @param callable $errorHandler Function to handle routing errors
-     * @return ResponseInterface
-     */
-    public function dispatch(ServerRequestInterface $request, callable $errorHandler): ResponseInterface
-    {
-        $method = $request->getMethod();
-        $path = $request->getUri()->getPath();
-
-        // Match the route
-        $routeInfo = $this->match($method, $path);
-
-        // Handle error cases
-        if ($routeInfo['status'] !== 'found') {
-            return $errorHandler($request, $routeInfo);
-        }
-
-        // Extract route parameters
-        $params = $routeInfo['vars'] ?? [];
-
-        // Add route parameters to the request
-        foreach ($params as $name => $value) {
-            $request = $request->withAttribute($name, $value);
-        }
-
-        // Build middleware stack
-        $middlewareStack = [];
-
-        if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
-            // If we have controller info, use attribute-based middleware
-            $middlewareStack = $this->middlewareManager->getStackForControllerRoute(
-                $method,
-                $path,
-                $routeInfo['controller'],
-                $routeInfo['action']
-            );
-        } else {
-            // Otherwise use route-based middleware only
-            $middlewareStack = $this->middlewareManager->getStackForRoute($method, $path);
-        }
-
-        // Create the final handler (route handler)
-        $finalHandler = function (ServerRequestInterface $request) use ($routeInfo) {
-            $handler = $routeInfo['handler'];
-            return call_user_func($handler, $request);
-        };
-
-        // Create a middleware pipeline
-        $pipeline = $this->createMiddlewarePipeline($middlewareStack, $finalHandler);
-
-        // Process the request through the middleware pipeline
-        return $pipeline->handle($request);
-    }
-
-    /**
      * Create a middleware pipeline
      *
      * @param array $middlewareStack
@@ -362,6 +301,7 @@ class Router
      */
     protected function createMiddlewarePipeline(array $middlewareStack, callable $finalHandler): MiddlewarePipeline
     {
+        logger()->debug('possibly unused method createMiddlewarePipeline() Router.php');
         $registry = $this->middlewareManager->getRegistry();
 
         return new MiddlewarePipeline(
@@ -501,9 +441,6 @@ class Router
      */
     private function createDispatcher()
     {
-        // Recreate the dispatcher every time to ensure latest routes
-        $this->dispatcher = null;
-
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
             $this->routes = self::$allRoutes;
@@ -529,6 +466,7 @@ class Router
      *
      * @param string|callable $handler
      * @return callable
+     * @throws BindingResolutionException
      */
     private function resolveController($handler)
     {
