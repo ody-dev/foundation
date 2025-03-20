@@ -3,6 +3,7 @@
 namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
+use Ody\Foundation\Console\CommandRegistry;
 
 /**
  * Base Service Provider
@@ -100,6 +101,77 @@ abstract class ServiceProvider
     }
 
     /**
+     * Register the given commands.
+     *
+     * @param array $commands Array of command class names
+     * @return void
+     */
+    protected function registerCommands(array $commands): void
+    {
+        // Skip if not in console or container not available
+        if (!$this->isRunningInConsole() || !isset($this->container)) {
+            return;
+        }
+
+        // Skip if command registry is not available
+        if (!$this->container->has(CommandRegistry::class)) {
+            // Store commands for later registration if we're in ConsoleServiceProvider
+            if (get_class($this) === ConsoleServiceProvider::class && property_exists($this, 'commands')) {
+                $this->commands = array_merge($this->commands, $commands);
+            }
+            return;
+        }
+
+        try {
+            // Get the command registry from the container
+            $registry = $this->container->make(CommandRegistry::class);
+
+            // Register each command with the registry
+            foreach ($commands as $command) {
+                $registry->add($command);
+            }
+        } catch (\Throwable $e) {
+            // If there's an error (like missing logger), store commands for later if in ConsoleServiceProvider
+            if (get_class($this) === ConsoleServiceProvider::class && property_exists($this, 'commands')) {
+                $this->commands = array_merge($this->commands, $commands);
+            }
+        }
+    }
+
+    /**
+     * Register a single command.
+     *
+     * @param string $command Command class name
+     * @return void
+     */
+    protected function registerCommand(string $command): void
+    {
+        $this->registerCommands([$command]);
+    }
+
+    /**
+     * Determine if the application is running in the console.
+     *
+     * @return bool
+     */
+    protected function isRunningInConsole(): bool
+    {
+        // Check if the container explicitly knows we're in console
+        if (isset($this->container) && $this->container->has('runningInConsole')) {
+            return $this->container->make('runningInConsole');
+        }
+
+        // Check PHP SAPI name
+        if (php_sapi_name() === 'cli' || php_sapi_name() === 'phpdbg') {
+            return true;
+        }
+
+        // Check if running in Lambda/Vapor CLI environment
+        return in_array(PHP_SAPI, ['cli', 'phpdbg']) ||
+            (isset($_ENV['LAMBDA_TASK_ROOT']) && isset($_ENV['AWS_LAMBDA_RUNTIME_API']));
+    }
+
+    /**
      * Load routes from the specified path.
      *
      * @param string $path Path to a route file or directory
@@ -157,6 +229,7 @@ abstract class ServiceProvider
             $this->loadRoutesFrom($path, $attributes);
         }
     }
+
     /**
      * Set up the provider with a container.
      * This method is for compatibility with older code.
@@ -204,7 +277,6 @@ abstract class ServiceProvider
             }
         }
     }
-
 
     /**
      * Register a binding with the container.

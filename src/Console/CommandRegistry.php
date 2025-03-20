@@ -10,6 +10,7 @@
 namespace Ody\Foundation\Console;
 
 use Ody\Container\Container;
+use Ody\Logger\StreamLogger;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Command\Command;
 
@@ -44,12 +45,12 @@ class CommandRegistry
      * CommandRegistry constructor
      *
      * @param Container $container
-     * @param LoggerInterface $logger
+     * @param LoggerInterface|null $logger
      */
-    public function __construct(Container $container, LoggerInterface $logger)
+    public function __construct(Container $container, ?LoggerInterface $logger = null)
     {
         $this->container = $container;
-        $this->logger = $logger;
+        $this->logger = $logger ?? new StreamLogger('php://stdout');
     }
 
     /**
@@ -67,21 +68,28 @@ class CommandRegistry
 
         // Check if the class exists
         if (!class_exists($commandClass)) {
+            $this->logger->warning("Command class does not exist: {$commandClass}");
             return $this;
         }
 
-        // Create the command instance
-        $instance = $this->resolveCommand($commandClass);
+        try {
+            // Create the command instance
+            $instance = $this->resolveCommand($commandClass);
 
-        // Skip if resolving failed
-        if (!$instance) {
-            return $this;
+            // Skip if resolving failed
+            if (!$instance) {
+                return $this;
+            }
+
+            // Add to commands
+            $name = $instance->getName();
+            $this->commands[$name] = $instance;
+            $this->registered[$commandClass] = true;
+
+            $this->logger->debug("Command registered: {$name} ({$commandClass})");
+        } catch (\Throwable $e) {
+            $this->logger->error("Failed to register command {$commandClass}: " . $e->getMessage());
         }
-
-        // Add to commands
-        $name = $instance->getName();
-        $this->commands[$name] = $instance;
-        $this->registered[$commandClass] = true;
 
         return $this;
     }
@@ -138,67 +146,25 @@ class CommandRegistry
      */
     protected function resolveCommand(string $class): ?Command
     {
-        // Try resolving from container first
-        if ($this->container->has($class)) {
-            $command = $this->container->make($class);
-        } else {
-            // Otherwise create a new instance
-            $command = new $class();
+        try {
+            // Try resolving from container first
+            if ($this->container->has($class)) {
+                $command = $this->container->make($class);
+            } else {
+                // Otherwise create a new instance
+                $command = new $class();
+            }
+
+            // Validate it's a Command
+            if (!$command instanceof Command) {
+                $this->logger->warning("Class {$class} is not a Symfony Command");
+                return null;
+            }
+
+            return $command;
+        } catch (\Throwable $e) {
+            $this->logger->error("Error resolving command {$class}: " . $e->getMessage());
+            return null;
         }
-
-        // Validate it's a Command
-        if (!$command instanceof Command) {
-            throw new \Exception("Class {$class} is not a Symfony Command");
-        }
-
-        return $command;
-    }
-
-    /**
-     * Extract class name from a file
-     *
-     * @param string $file
-     * @return string|null
-     */
-    protected function getClassNameFromFile(string $file): ?string
-    {
-        $content = file_get_contents($file);
-
-        // Extract namespace
-        $namespace = null;
-        if (preg_match('/namespace\s+([^;]+);/', $content, $matches)) {
-            $namespace = $matches[1];
-        }
-
-        // Extract class name
-        $className = null;
-        if (preg_match('/class\s+([a-zA-Z0-9_]+)(?:\s+extends|\s+implements|\s*{)/', $content, $matches)) {
-            $className = $matches[1];
-        }
-
-        if ($namespace && $className) {
-            return $namespace . '\\' . $className;
-        }
-
-        return null;
-    }
-
-    /**
-     * Normalize a path
-     *
-     * @param string $path
-     * @return string
-     */
-    protected function normalizePath(string $path): string
-    {
-        // If starts with a slash, it's an absolute path
-        if ($path[0] === '/' || $path[0] === '\\' || preg_match('/^[A-Z]:/i', $path)) {
-            return $path;
-        }
-
-        // Otherwise, make it relative to app base path
-        $basePath = defined('APP_BASE_PATH') ? APP_BASE_PATH : dirname(__DIR__, 3);
-
-        return $basePath . DIRECTORY_SEPARATOR . $path;
     }
 }

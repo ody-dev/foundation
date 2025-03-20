@@ -11,173 +11,96 @@ namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
 use Ody\Foundation\Console\CommandRegistry;
+use Ody\Foundation\Console\Commands\EnvironmentCommand;
 use Ody\Foundation\Console\ConsoleKernel;
-use Ody\Support\Config;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\Console\Application as ConsoleApplication;
+use Psr\Log\NullLogger;
+use Symfony\Component\Console\Application as SymfonyConsole;
 
 /**
- * Console Service Provider
+ * ConsoleServiceProvider
  *
- * Registers console-related services in the container
+ * Service provider for console commands and related services
  */
 class ConsoleServiceProvider extends ServiceProvider
 {
     /**
-     * The core console commands provided by the framework
+     * Services that should be registered as singletons
      *
      * @var array
      */
-    protected array $commands = [
-        \Ody\Foundation\Console\Commands\ServeCommand::class,
-        \Ody\Foundation\Console\Commands\EnvironmentCommand::class,
-        \Ody\Foundation\Console\Commands\TestCommand::class,
-        \Ody\Foundation\Console\Commands\MakeCommandCommand::class,
-//        \Ody\Foundation\Console\Commands\ListCommand::class,
+    protected array $singletons = [
+        SymfonyConsole::class => null,
+        ConsoleKernel::class => null,
     ];
 
     /**
-     * Register console-related services
+     * Array of commands for deferred registration
+     *
+     * @var array
+     */
+    protected array $commands = [];
+
+    /**
+     * Register any application services.
      *
      * @return void
      */
     public function register(): void
     {
-        // Register Symfony Console application
-        $this->singleton(ConsoleApplication::class, function (Container $container) {
-            $version = $this->getFrameworkVersion($container);
-            return new ConsoleApplication('ODY Console', $version);
+        // Run common registration logic
+        $this->registerCommon();
+
+        // Register the Symfony console application
+        $this->singleton(SymfonyConsole::class, function () {
+            $console = new SymfonyConsole('ODY Framework', '1.0.0');
+            return $console;
         });
 
-        // Register CommandRegistry as a singleton
-        $this->singleton(CommandRegistry::class, function (Container $container) {
-            return new CommandRegistry(
-                $container,
-                $container->make(LoggerInterface::class)
-            );
-        });
-
-        // Register ConsoleKernel - should be registered last
-        // as it depends on the other services
+        // Register the console kernel
         $this->singleton(ConsoleKernel::class, function (Container $container) {
-            return new ConsoleKernel(
-                $container,
-                $container->make(ConsoleApplication::class)
-            );
+            $console = $container->make(SymfonyConsole::class);
+            return new ConsoleKernel($container, $console);
         });
+
+        // Store commands for deferred registration in boot()
+        $this->commands = [
+            EnvironmentCommand::class,
+//            MakeCommand::class,
+//            ServeCommand::class,
+//            TestCommand::class,
+        ];
     }
 
     /**
-     * Bootstrap console services
+     * Bootstrap any application services.
      *
      * @return void
      */
     public function boot(): void
     {
-        // Skip if not running in console (prevents unnecessary scanning in HTTP requests)
-        if ($this->container->has('app')) {
-            $app = $this->container->make('app');
-            if (method_exists($app, 'isConsole') && !$app->isConsole()) {
-                return;
+        // Skip if not in console
+        if (!$this->isRunningInConsole()) {
+            return;
+        }
+
+        // Register the command registry - do this in boot() when LoggerInterface should be available
+        $this->singleton(CommandRegistry::class, function (Container $container) {
+            // Get logger or create a fallback
+            $logger = null;
+            if ($container->has(LoggerInterface::class)) {
+                $logger = $container->make(LoggerInterface::class);
+            } else {
+                // Create a NullLogger as fallback
+                $logger = new NullLogger();
             }
+
+            return new CommandRegistry($container, $logger);
+        });
+
+        // Register commands now that CommandRegistry is available
+        if (!empty($this->commands)) {
+            $this->registerCommands($this->commands);
         }
-
-        $registry = $this->make(CommandRegistry::class);
-        $console = $this->make(ConsoleApplication::class);
-
-        // Register built-in framework commands
-        $this->registerFrameworkCommands($registry);
-
-        // Register application commands from config
-        $this->registerApplicationCommands($registry);
-
-        // Register all commands with the Symfony console application
-        $this->registerCommandsWithConsole($registry, $console);
-    }
-
-    /**
-     * Register framework built-in commands
-     *
-     * @param CommandRegistry $registry
-     * @return void
-     */
-    protected function registerFrameworkCommands(CommandRegistry $registry): void
-    {
-        foreach ($this->commands as $commandClass) {
-            // Simply pass the class name to the registry
-            $registry->add($commandClass);
-        }
-    }
-
-    /**
-     * Register application commands from config
-     *
-     * @param CommandRegistry $registry
-     * @return void
-     */
-    protected function registerApplicationCommands(CommandRegistry $registry): void
-    {
-        $config = $this->container->make(Config::class);
-        $commands = $config->get('app.commands', []);
-
-        foreach ($commands as $command) {
-            if (class_exists($command)) {
-                $registry->add($command);
-            }
-        }
-    }
-
-    /**
-     * Register commands with Symfony Console
-     *
-     * @param CommandRegistry $registry
-     * @param ConsoleApplication $console
-     * @return void
-     */
-    protected function registerCommandsWithConsole(CommandRegistry $registry, ConsoleApplication $console): void
-    {
-        $logger = $this->container->make(LoggerInterface::class);
-
-        foreach ($registry->getCommands() as $command) {
-            if (!$console->has($command->getName())) {
-                $console->add($command);
-                $logger->debug("Registered command with console: " . $command->getName());
-            }
-        }
-    }
-
-    /**
-     * Get the framework version
-     *
-     * @param Container $container
-     * @return string
-     */
-    protected function getFrameworkVersion(Container $container): string
-    {
-        if ($container->has(Config::class)) {
-            $config = $container->make(Config::class);
-            $version = $config->get('app.version');
-
-            if ($version) {
-                return $version;
-            }
-        }
-
-        // Fallback version
-        return '1.0.0';
-    }
-
-    /**
-     * Get the services provided by the provider
-     *
-     * @return array
-     */
-    public function provides(): array
-    {
-        return [
-            CommandRegistry::class,
-            ConsoleKernel::class,
-            ConsoleApplication::class,
-        ];
     }
 }

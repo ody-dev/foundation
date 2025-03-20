@@ -59,8 +59,6 @@ class ConsoleKernel
         // Use provided console application or create a new one
         $this->console = $console ?? $this->container->make(ConsoleApplication::class);
 
-        $this->container->instance('runningInConsole', true);
-
         // Register self in container
         $this->container->instance(self::class, $this);
     }

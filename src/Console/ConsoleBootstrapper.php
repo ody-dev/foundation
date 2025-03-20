@@ -16,6 +16,9 @@ use Ody\Foundation\Providers\ConsoleServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Ody\Support\Config;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\Console\Application as ConsoleApplication;
 
 /**
  * Console Bootstrapper
@@ -34,7 +37,6 @@ class ConsoleBootstrapper
     public static function kernel(?Container $container = null): ConsoleKernel
     {
         $container = self::bootstrap($container);
-
         return $container->make(ConsoleKernel::class);
     }
 
@@ -50,6 +52,9 @@ class ConsoleBootstrapper
         $container = $container ?: new Container();
         Container::setInstance($container);
 
+        // Mark as running in console
+        $container->instance('runningInConsole', true);
+
         // Get or create service provider manager
         $providerManager = $container->has(ServiceProviderManager::class)
             ? $container->make(ServiceProviderManager::class)
@@ -64,6 +69,38 @@ class ConsoleBootstrapper
     }
 
     /**
+     * Finalize command registration by adding all registered commands to the Symfony console
+     *
+     * @param Container $container
+     * @return void
+     */
+    protected static function finalizeCommandRegistration(Container $container): void
+    {
+        // Skip if not running in console or missing required components
+        if (!$container->has('runningInConsole') ||
+            !$container->has(CommandRegistry::class) ||
+            !$container->has(ConsoleApplication::class)) {
+            return;
+        }
+
+        // Get the command registry and console application
+        $registry = $container->make(CommandRegistry::class);
+        $console = $container->make(ConsoleApplication::class);
+
+        // Add all registered commands to the Symfony console
+        $logger = $container->has(LoggerInterface::class)
+            ? $container->make(LoggerInterface::class)
+            : null;
+
+        foreach ($registry->getCommands() as $command) {
+            $console->add($command);
+            if ($logger) {
+                $logger->debug("Added command to console: " . $command->getName());
+            }
+        }
+    }
+
+    /**
      * Register core service providers
      *
      * @param ServiceProviderManager $providerManager
@@ -72,29 +109,34 @@ class ConsoleBootstrapper
     protected static function registerServiceProviders(ServiceProviderManager $providerManager): void
     {
         // Core providers that must be registered in console environment
+        // Order matters! LoggingServiceProvider must be registered before ConsoleServiceProvider
         $coreProviders = [
             EnvServiceProvider::class,
             ConfigServiceProvider::class,
-            LoggingServiceProvider::class,
-            ConsoleServiceProvider::class,
+            LoggingServiceProvider::class, // This must be fully registered and booted first
+            ConsoleServiceProvider::class, // This depends on logger
         ];
 
         array_walk($coreProviders, function ($provider) use ($providerManager) {
             $providerManager->register($provider);
         });
 
-        /**
-         * TODO: Figure out if we really need providers from config in the console
-         */
-//        $config = $providerManager->getContainer()->make(Config::class);
-//        $providers = $config->get('app.providers', []);
-//
-//        error_log('Loading providers from config in ConsoleBootstrapper registerServiceProviders()');
-//        array_walk($providers, function ($provider) use ($providerManager) {
-//            $providerManager->register($provider);
-//        });
+        // Get container and check if config is available
+        $container = $providerManager->getContainer();
+        if ($container->has(Config::class)) {
+            $config = $container->make(Config::class);
+            $providers = $config->get('app.providers', []);
+
+            // Register all providers from config
+            array_walk($providers, function ($provider) use ($providerManager) {
+                $providerManager->register($provider);
+            });
+        }
 
         // Boot all registered providers
         $providerManager->boot();
+
+        // After all providers are booted, ensure all commands are registered with Symfony
+        self::finalizeCommandRegistration($container);
     }
 }
