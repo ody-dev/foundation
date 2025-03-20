@@ -73,6 +73,8 @@ class Router
     {
         $route = new Route('GET', $path, $handler, $this->middlewareManager);
 
+        var_dump($this->routes);
+
         // Add to instance routes
         $this->routes[] = ['GET', $path, $handler];
 
@@ -80,6 +82,7 @@ class Router
         self::$allRoutes[] = ['GET', $path, $handler];
 
         logger()->debug("Router: Registered GET route: {$path}");
+        var_dump($this->routes);
 
         return $route;
     }
@@ -199,6 +202,7 @@ class Router
         }
 
         logger()->debug("Router::match() {$method} {$path}");
+        dd(self::$allRoutes);
 
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
