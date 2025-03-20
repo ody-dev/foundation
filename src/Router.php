@@ -73,8 +73,6 @@ class Router
     {
         $route = new Route('GET', $path, $handler, $this->middlewareManager);
 
-        var_dump($this->routes);
-
         // Add to instance routes
         $this->routes[] = ['GET', $path, $handler];
 
@@ -82,7 +80,6 @@ class Router
         self::$allRoutes[] = ['GET', $path, $handler];
 
         logger()->debug("Router: Registered GET route: {$path}");
-        var_dump($this->routes);
 
         return $route;
     }
@@ -181,6 +178,10 @@ class Router
         // Load routes on-demand when first match is attempted
         RouteRegistry::loadRoutesIfNeeded($this);
 
+        $this->deduplicateRoutes();
+
+//        $this->routes = self::$allRoutes;
+
         self::$routesCacheHits++;
 
         // Periodically clean up excessive cached routes
@@ -202,7 +203,6 @@ class Router
         }
 
         logger()->debug("Router::match() {$method} {$path}");
-        dd(self::$allRoutes);
 
         // CRITICAL: If instance routes are empty but static routes exist, use those
         if (empty($this->routes) && !empty(self::$allRoutes)) {
@@ -555,5 +555,30 @@ class Router
 
             self::$allRoutes = $uniqueRoutes;
         }
+    }
+
+    public function syncRoutes(): void
+    {
+        $this->routes = self::$allRoutes;
+        logger()->debug("Router: Synchronized " . count(self::$allRoutes) . " routes from static storage");
+    }
+
+    private function deduplicateRoutes(): void
+    {
+        $uniqueRoutes = [];
+        $seenRoutes = [];
+
+        foreach (self::$allRoutes as $route) {
+            $key = $route[0] . '|' . $route[1]; // method|path
+            if (!isset($seenRoutes[$key])) {
+                $uniqueRoutes[] = $route;
+                $seenRoutes[$key] = true;
+            }
+        }
+
+        self::$allRoutes = $uniqueRoutes;
+        $this->routes = $uniqueRoutes;
+
+        logger()->debug("Router: Deduplicated routes. Result: " . count($uniqueRoutes) . " unique routes.");
     }
 }

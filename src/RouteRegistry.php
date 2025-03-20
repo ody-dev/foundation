@@ -49,6 +49,13 @@ class RouteRegistry
 
         self::$routesLoaded = true;
 
+        if ($router !== null) {
+            // IMPORTANT: Synchronize the routes from static to instance
+            if (method_exists($router, 'syncRoutes')) {
+                $router->syncRoutes();
+            }
+        }
+
         // Mark routes as loaded in the router if provided
         if ($router !== null && method_exists($router, 'markRoutesLoaded')) {
             logger()->debug("RouteRegistry loadRoutesIfneeded; router->markRoutesLoaded()");

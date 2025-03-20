@@ -54,11 +54,6 @@ class DebugMiddleware implements MiddlewareInterface
             'method' => $request->getMethod()
         ]);
 
-        // Log the request attributes
-        $this->logger->debug("Request attributes in {$this->id}:", [
-            'attributes' => array_keys($request->getAttributes())
-        ]);
-
         // Process the request
         $response = $handler->handle($request);
 
