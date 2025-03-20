@@ -176,8 +176,5 @@ class MiddlewareManager
                 ]);
             }
         }
-
-        // Clear all data from the context manager
-        ContextManager::clear();
     }
 }
