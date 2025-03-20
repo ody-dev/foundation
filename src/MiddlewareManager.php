@@ -19,11 +19,6 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
-/**
- * Middleware Manager
- *
- * Manages middleware registration and execution using the simplified registry
- */
 class MiddlewareManager
 {
     /**
