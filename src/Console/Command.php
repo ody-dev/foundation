@@ -120,8 +120,7 @@ abstract class Command extends SymfonyCommand
         $this->initializeContainer();
 
         try {
-            $result = $this->handle($input, $output);
-            return is_int($result) ? $result : self::SUCCESS;
+            return $this->handle($input, $output);
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
 
@@ -156,12 +155,7 @@ abstract class Command extends SymfonyCommand
         $this->container = Container::getInstance();
 
         if ($this->container) {
-            if ($this->container->has(LoggerInterface::class)) {
-                $this->logger = $this->container->make(LoggerInterface::class);
-            } else {
-                // Create a default logger
-                $this->logger = new NullLogger();
-            }
+            $this->logger = $this->container->make(LoggerInterface::class);
         } else {
             $this->io->warning('Container not initialized');
         }

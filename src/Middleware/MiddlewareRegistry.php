@@ -19,12 +19,6 @@ use Psr\Log\NullLogger;
 use ReflectionClass;
 use ReflectionMethod;
 
-/**
- * Middleware Registry
- *
- * A consolidated registry that handles middleware registration, resolution, and attribute-based discovery.
- * Combines functionality from MiddlewareRegistry, MiddlewareResolutionCache, and AttributeResolver.
- */
 class MiddlewareRegistry
 {
     /**
@@ -114,6 +108,7 @@ class MiddlewareRegistry
         if (!isset($this->routes[$routeKey])) {
             $this->routes[$routeKey] = [];
         }
+
         $this->routes[$routeKey][] = $middleware;
 
         $this->logger->debug("Registered route middleware", [
@@ -468,12 +463,6 @@ class MiddlewareRegistry
                     $resolvedParams[] = $this->container->make($typeName);
                     continue;
                 }
-
-                // Special handling for common types
-                if ($typeName === LoggerInterface::class && $this->container->has('logger')) {
-                    $resolvedParams[] = $this->container->make('logger');
-                    continue;
-                }
             }
 
             // If parameter is optional, use default value
@@ -553,11 +542,11 @@ class MiddlewareRegistry
     /**
      * Get middleware for a controller and method
      *
-     * @param string|object $controller Controller class or instance
+     * @param object|string $controller Controller class or instance
      * @param string $method Method name
      * @return array Combined middleware list for the controller and method
      */
-    public function getMiddleware($controller, string $method): array
+    public function getMiddleware(object|string $controller, string $method): array
     {
         // Get the controller class name
         $controllerClass = is_object($controller) ? get_class($controller) : $controller;
@@ -734,24 +723,12 @@ class MiddlewareRegistry
     {
         // Register named middleware
         if (isset($config['named']) && is_array($config['named'])) {
-            foreach ($config['named'] as $name => $middleware) {
-                // Check if middleware has parameters
-                if (is_array($middleware) && isset($middleware['class'])) {
-                    $middlewareClass = $middleware['class'];
-                    $parameters = $middleware['parameters'] ?? [];
-                    $this->named($name, new MiddlewareConfig($middlewareClass, $parameters));
-                } else {
-                    $this->named($name, $middleware);
-                }
-            }
+            $this->registerNamedMiddleware($config['named']);
         }
 
         // Register groups
         if (isset($config['groups']) && is_array($config['groups'])) {
-            foreach ($config['groups'] as $name => $middlewareList) {
-                $processed = $this->processMiddlewareConfig($middlewareList);
-                $this->group($name, $processed);
-            }
+            $this->registerGroupedMiddleware($config['groups']);
         }
 
         // Register global middleware
@@ -769,6 +746,40 @@ class MiddlewareRegistry
         }
 
         return $this;
+    }
+
+    /**
+     * Registers named middleware
+     *
+     * @param array $nameMiddleware
+     * @return void
+     */
+    public function registerNamedMiddleware(array $nameMiddleware): void
+    {
+        foreach ($nameMiddleware as $name => $middleware) {
+            // Check if middleware has parameters
+            if (is_array($middleware) && isset($middleware['class'])) {
+                $middlewareClass = $middleware['class'];
+                $parameters = $middleware['parameters'] ?? [];
+                $this->named($name, new MiddlewareConfig($middlewareClass, $parameters));
+            } else {
+                $this->named($name, $middleware);
+            }
+        }
+    }
+
+    /**
+     * Registers grouped middleware
+     *
+     * @param array $groupedMiddleware
+     * @return void
+     */
+    private function registerGroupedMiddleware(array $groupedMiddleware): void
+    {
+        foreach ($groupedMiddleware as $name => $middlewareList) {
+            $processed = $this->processMiddlewareConfig($middlewareList);
+            $this->group($name, $processed);
+        }
     }
 
     /**
@@ -798,35 +809,5 @@ class MiddlewareRegistry
         }
 
         return $result;
-    }
-
-    /**
-     * Get cache statistics
-     *
-     * @return array
-     */
-    public function getCacheStats(): array
-    {
-        return [
-            'cached_middleware' => count($this->resolved),
-            'cache_hits' => $this->cacheHits,
-            'total_hits' => array_sum($this->cacheHits),
-            'controller_cache' => count($this->controllerCache),
-            'method_cache' => count($this->methodCache)
-        ];
-    }
-
-    /**
-     * Clear the middleware cache
-     *
-     * @return self
-     */
-    public function clearCache(): self
-    {
-        $this->resolved = [];
-        $this->controllerCache = [];
-        $this->methodCache = [];
-        $this->cacheHits = [];
-        return $this;
     }
 }

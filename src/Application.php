@@ -92,7 +92,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         ConfigServiceProvider::class,
         LoggingServiceProvider::class,
         ApplicationServiceProvider::class,
-        RouteServiceProvider::class  // Added the RouteServiceProvider
     ];
 
     /**
@@ -445,21 +444,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     }
 
     /**
-     * Log the incoming request details
-     *
-     * @param ServerRequestInterface $request
-     * @return void
-     */
-    private function logRequest(ServerRequestInterface $request): void
-    {
-        $this->logger->info('Request received', [
-            'method' => $request->getMethod(),
-            'path' => $request->getUri()->getPath(),
-            'ip' => $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown'
-        ]);
-    }
-
-    /**
      * Get router instance from the container
      *
      * @return Router
@@ -489,90 +473,5 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         }
 
         return $this->responseEmitter;
-    }
-
-    /**
-     * Get the route service
-     *
-     * @return RouteService
-     */
-    public function getRouteService(): RouteService
-    {
-        if ($this->routeService === null) {
-            $this->routeService = $this->container->make(RouteService::class);
-        }
-
-        return $this->routeService;
-    }
-
-    /**
-     * Determine if the application is running in the console.
-     *
-     * @return bool
-     */
-    public function runningInConsole(): bool
-    {
-        if (!$this->consoleDetected) {
-            $this->runningInConsole = $this->container->get('runningInConsole');
-            $this->consoleDetected = true;
-        }
-
-        return $this->runningInConsole;
-    }
-
-    /**
-     * Log exception details
-     *
-     * @param Throwable $e
-     * @param string $message
-     * @param bool $includeTrace
-     * @return void
-     */
-    private function logException(Throwable $e, string $message, bool $includeTrace = false): void
-    {
-        $logData = [
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine()
-        ];
-
-        if ($includeTrace) {
-            $logData['trace'] = $e->getTraceAsString();
-        }
-
-        logger()->error($message, $logData);
-    }
-
-    /**
-     * Create a JSON error response
-     *
-     * @param ResponseInterface $response
-     * @param int $status
-     * @param string $message
-     * @return ResponseInterface
-     */
-    private function createErrorResponse(
-        ResponseInterface $response,
-        int               $status,
-        string            $message
-    ): ResponseInterface
-    {
-        return $response->withStatus($status)
-            ->withHeader('Content-Type', 'application/json')
-            ->withBody($this->createJsonBody([
-                'error' => $message
-            ]));
-    }
-
-    /**
-     * Create a JSON response body
-     *
-     * @param array $data
-     * @return StreamInterface
-     */
-    private function createJsonBody(array $data): StreamInterface
-    {
-        $factory = $this->container->make('Psr\Http\Message\StreamFactoryInterface');
-        return $factory->createStream(json_encode($data));
     }
 }

@@ -9,7 +9,6 @@
 
 namespace Ody\Foundation\Middleware;
 
-// New class to represent middleware with parameters
 class MiddlewareConfig
 {
     /**

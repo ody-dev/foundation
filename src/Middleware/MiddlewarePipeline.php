@@ -1,4 +1,11 @@
 <?php
+/*
+ * This file is part of ODY framework.
+ *
+ * @link     https://ody.dev
+ * @document https://ody.dev/docs
+ * @license  https://github.com/ody-dev/ody-core/blob/master/LICENSE
+ */
 
 namespace Ody\Foundation\Middleware;
 
@@ -30,15 +37,17 @@ class MiddlewarePipeline implements RequestHandlerInterface
     }
 
     /**
-     * Add middleware to the pipeline
+     * Create a pipeline from an array of middleware
      *
-     * @param MiddlewareInterface $middleware
+     * @param array $middleware
+     * @param callable $finalHandler
      * @return self
      */
-    public function add(MiddlewareInterface $middleware): self
+    public static function fromArray(array $middleware, callable $finalHandler): self
     {
-        $this->middleware[] = $middleware;
-        return $this;
+        $pipeline = new self($finalHandler);
+        $pipeline->addMultiple($middleware);
+        return $pipeline;
     }
 
     /**
@@ -54,6 +63,18 @@ class MiddlewarePipeline implements RequestHandlerInterface
                 $this->add($middleware);
             }
         }
+        return $this;
+    }
+
+    /**
+     * Add middleware to the pipeline
+     *
+     * @param MiddlewareInterface $middleware
+     * @return self
+     */
+    public function add(MiddlewareInterface $middleware): self
+    {
+        $this->middleware[] = $middleware;
         return $this;
     }
 
@@ -74,19 +95,5 @@ class MiddlewarePipeline implements RequestHandlerInterface
 
         // Process the request through the middleware
         return $middleware->process($request, $this);
-    }
-
-    /**
-     * Create a pipeline from an array of middleware
-     *
-     * @param array $middleware
-     * @param callable $finalHandler
-     * @return self
-     */
-    public static function fromArray(array $middleware, callable $finalHandler): self
-    {
-        $pipeline = new self($finalHandler);
-        $pipeline->addMultiple($middleware);
-        return $pipeline;
     }
 }

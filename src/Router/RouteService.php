@@ -99,8 +99,6 @@ class RouteService
             $this->loadModuleRoutes();
 
             $this->routesLoaded = true;
-
-            $this->logger->info("Routes loaded successfully. Total routes: {$this->router->countRoutes()}");
         } catch (\Throwable $e) {
             $this->logger->error("Error loading routes: {$e->getMessage()}", [
                 'exception' => $e,

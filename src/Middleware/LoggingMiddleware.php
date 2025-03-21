@@ -56,8 +56,6 @@ class LoggingMiddleware implements MiddlewareInterface
         $startTime = microtime(true);
         $path = $request->getUri()->getPath();
 
-        logger()->debug("Logging middleware started at $startTime");
-
         // Check if this path should be excluded from logging
         $shouldLog = !$this->isPathExcluded($path);
 

@@ -117,7 +117,6 @@ abstract class ServiceProvider
 
         // Skip if command registry is not available
         if (!$this->container->has(CommandRegistry::class)) {
-            // Store commands for later registration if we're in ConsoleServiceProvider
             if (get_class($this) === ConsoleServiceProvider::class && property_exists($this, 'commands')) {
                 $this->commands = array_merge($this->commands, $commands);
             }
@@ -158,19 +157,7 @@ abstract class ServiceProvider
      */
     protected function isRunningInConsole(): bool
     {
-        // Check if the container explicitly knows we're in console
-        if (isset($this->container) && $this->container->has('runningInConsole')) {
-            return $this->container->make('runningInConsole');
-        }
-
-        // Check PHP SAPI name
-        if (php_sapi_name() === 'cli' || php_sapi_name() === 'phpdbg') {
-            return true;
-        }
-
-        // Check if running in Lambda/Vapor CLI environment
-        return in_array(PHP_SAPI, ['cli', 'phpdbg']) ||
-            (isset($_ENV['LAMBDA_TASK_ROOT']) && isset($_ENV['AWS_LAMBDA_RUNTIME_API']));
+        return $this->container->get('runningInConsole') ?? false;
     }
 
     /**
@@ -182,6 +169,10 @@ abstract class ServiceProvider
      */
     protected function loadRoutesFrom(string $path, array $attributes = []): void
     {
+        if ($this->isRunningInConsole()) {
+            return;
+        }
+
         if (!file_exists($path)) {
             return;
         }
@@ -207,10 +198,14 @@ abstract class ServiceProvider
      */
     protected function loadRoutes(string $path, array $attributes = []): void
     {
+        if ($this->isRunningInConsole()) {
+            return;
+        }
+
         // Check if the RouteServiceProvider is registered
-        if ($this->container->has('Ody\Foundation\Providers\RouteServiceProvider')) {
+        if ($this->container->has(RouteServiceProvider::class)) {
             // Use the provider's method if available
-            $routeServiceProvider = $this->container->make('Ody\Foundation\Providers\RouteServiceProvider');
+            $routeServiceProvider = $this->container->make(RouteServiceProvider::class);
             if (method_exists($routeServiceProvider, 'loadRoutes')) {
                 $routeServiceProvider->loadRoutes($path, $attributes);
                 return;

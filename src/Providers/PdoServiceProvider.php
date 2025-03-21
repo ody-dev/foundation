@@ -7,7 +7,7 @@ use PDO;
 /**
  * Service provider for database services
  */
-class DatabaseServiceProvider extends ServiceProvider
+class PdoServiceProvider extends ServiceProvider
 {
     /**
      * Services that should be registered as singletons

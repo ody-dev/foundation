@@ -88,15 +88,8 @@ class ConsoleBootstrapper
         $console = $container->make(ConsoleApplication::class);
 
         // Add all registered commands to the Symfony console
-        $logger = $container->has(LoggerInterface::class)
-            ? $container->make(LoggerInterface::class)
-            : null;
-
         foreach ($registry->getCommands() as $command) {
             $console->add($command);
-            if ($logger) {
-                $logger->debug("Added command to console: " . $command->getName());
-            }
         }
     }
 

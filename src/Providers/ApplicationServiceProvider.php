@@ -35,9 +35,6 @@ class ApplicationServiceProvider extends ServiceProvider
         StreamFactoryInterface::class => Psr17Factory::class,
         UploadedFileFactoryInterface::class => Psr17Factory::class,
         UriFactoryInterface::class => Psr17Factory::class,
-        CorsMiddleware::class => null,
-        JsonBodyParserMiddleware::class => null,
-        LoggingMiddleware::class => null
     ];
 
     /**
@@ -45,21 +42,7 @@ class ApplicationServiceProvider extends ServiceProvider
      *
      * @var array
      */
-    protected array $tags = [
-        'psr7' => [
-            Psr17Factory::class,
-            ServerRequestFactoryInterface::class,
-            ResponseFactoryInterface::class,
-            StreamFactoryInterface::class,
-            UploadedFileFactoryInterface::class,
-            UriFactoryInterface::class
-        ],
-        'middleware' => [
-            CorsMiddleware::class,
-            JsonBodyParserMiddleware::class,
-            LoggingMiddleware::class
-        ]
-    ];
+    protected array $tags = [];
 
     /**
      * Register custom services
@@ -74,9 +57,6 @@ class ApplicationServiceProvider extends ServiceProvider
             $middlewareManager = $container->make(MiddlewareManager::class);
             return new Router($container, $middlewareManager);
         });
-
-        // Register PSR-15 middleware classes
-        $this->registerPsr15Middleware();
 
         // Register application
         $this->singleton(Application::class, function ($container) {
@@ -104,53 +84,5 @@ class ApplicationServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Application bootstrapping logic
-    }
-
-    /**
-     * Register PSR-15 middleware implementations
-     *
-     * @return void
-     */
-    private function registerPsr15Middleware(): void
-    {
-        // Register CORS middleware
-        $this->singleton(CorsMiddleware::class, function ($container) {
-            $config = $container->make(Config::class);
-            $corsConfig = $config->get('cors', [
-                'origin' => '*',
-                'methods' => 'GET, POST, PUT, DELETE, OPTIONS',
-                'headers' => 'Content-Type, Authorization, X-API-Key',
-                'max_age' => 86400
-            ]);
-
-            return new CorsMiddleware($corsConfig);
-        });
-
-        // Register JSON body parser middleware
-        $this->singleton(JsonBodyParserMiddleware::class, function () {
-            return new JsonBodyParserMiddleware();
-        });
-
-        // Register logging middleware
-        $this->singleton(LoggingMiddleware::class, function ($container) {
-            $logger = $container->make(LoggerInterface::class);
-
-            $config = $container->make(Config::class);
-
-            // Get routes to exclude from logging
-            $excludedRoutes = $config->get('logging.exclude_routes', []);
-
-            // Add InfluxDB log viewer routes to excluded routes
-            $influxDbExcludedRoutes = [
-                '/api/logs/recent',
-                '/api/logs/services',
-                '/api/logs/levels',
-                '/api/logs/service/*', // Wildcard pattern for service-specific logs
-            ];
-
-            $excludedRoutes = array_merge($excludedRoutes, $influxDbExcludedRoutes);
-
-            return new LoggingMiddleware($logger, $excludedRoutes);
-        });
     }
 }
