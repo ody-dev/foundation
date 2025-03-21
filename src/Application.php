@@ -20,7 +20,10 @@ use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
+use Ody\Foundation\Providers\RouteServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Ody\Foundation\Router\Router;
+use Ody\Foundation\Router\RouteService;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -54,7 +57,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      */
     private ?MiddlewareManager $middlewareManager = null;
 
-    // Add these properties to the class
     /**
      * @var bool Indicates if the application is running in console
      */
@@ -76,6 +78,11 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     protected ?ControllerDispatcher $controllerDispatcher = null;
 
     /**
+     * @var RouteService|null
+     */
+    protected ?RouteService $routeService = null;
+
+    /**
      * Core providers that must be registered in a specific order
      *
      * @var array|string[]
@@ -84,7 +91,8 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         EnvServiceProvider::class,
         ConfigServiceProvider::class,
         LoggingServiceProvider::class,
-        ApplicationServiceProvider::class
+        ApplicationServiceProvider::class,
+        RouteServiceProvider::class  // Added the RouteServiceProvider
     ];
 
     /**
@@ -156,8 +164,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         return $this->bootstrapped;
     }
 
-// And modify the bootstrap method:
-
     /**
      * Bootstrap the application by loading providers
      *
@@ -179,9 +185,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
 
         // Boot all registered providers
         $this->providerManager->boot();
-
-        // Initialize core components lazily (only created when first accessed)
-        $this->initializeCoreComponents();
 
         $this->bootstrapped = true;
         logger()->debug("Application::bootstrap() completed");
@@ -205,17 +208,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     }
 
     /**
-     * @deprecated Is not used anymore
-     * Initialize core components lazily using container callbacks
-     *
-     * @return void
-     */
-    protected function initializeCoreComponents(): void
-    {
-        // Deprecated?
-    }
-
-    /**
      * Handle a request
      *
      * @param ServerRequestInterface $request
@@ -227,8 +219,8 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             // Add the request to the container
             $this->container->instance(ServerRequestInterface::class, $request);
 
-            // Match the route
-            $router = $this->container->make(Router::class);
+            // Match the route using the Router from the container
+            $router = $this->getRouter();
             $routeInfo = $router->match($request->getMethod(), $request->getUri()->getPath());
 
             // Handle route not found
@@ -248,10 +240,9 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             // Add route parameters to the request
             foreach ($routeParams as $name => $value) {
                 $request = $request->withAttribute($name, $value);
-                ContextManager::set('_action', $routeInfo['action']);
             }
 
-            // Check if this is a controller route with attribute support
+            // Set controller and action in coroutine context for middleware use
             if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
                 ContextManager::set('_controller', $routeInfo['controller']);
                 ContextManager::set('_action', $routeInfo['action']);
@@ -317,7 +308,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             return call_user_func($handler, $request, $response, $routeParams);
         };
 
-        // Create a middleware pipeline from the simplified implementation
+        // Create a middleware pipeline
         $pipeline = new Middleware\MiddlewarePipeline($finalHandler);
 
         // Add resolved middleware instances to the pipeline
@@ -362,10 +353,14 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      *
      * @return MiddlewareManager
      */
-//    public function getMiddlewareManager(): MiddlewareManager
-//    {
-//        return $this->container->make(MiddlewareManager::class);
-//    }
+    public function getMiddlewareManager(): MiddlewareManager
+    {
+        if ($this->middlewareManager === null) {
+            $this->middlewareManager = $this->container->make(MiddlewareManager::class);
+        }
+
+        return $this->middlewareManager;
+    }
 
     /**
      * Handle a route not found error
@@ -373,17 +368,17 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * @param ServerRequestInterface $request
      * @return ResponseInterface
      */
-//    protected function handleNotFound(ServerRequestInterface $request): ResponseInterface
-//    {
-//        return (new Response())
-//            ->status(404)
-//            ->json()
-//            ->withJson([
-//                'error' => 'Not Found',
-//                'message' => 'The requested resource was not found',
-//                'path' => $request->getUri()->getPath()
-//            ]);
-//    }
+    protected function handleNotFound(ServerRequestInterface $request): ResponseInterface
+    {
+        return (new Response())
+            ->status(404)
+            ->json()
+            ->withJson([
+                'error' => 'Not Found',
+                'message' => 'The requested resource was not found',
+                'path' => $request->getUri()->getPath()
+            ]);
+    }
 
     /**
      * Handle a method not allowed error
@@ -392,18 +387,18 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * @param array $allowedMethods
      * @return ResponseInterface
      */
-//    protected function handleMethodNotAllowed(ServerRequestInterface $request, array $allowedMethods): ResponseInterface
-//    {
-//        return (new Response())
-//            ->status(405)
-//            ->withHeader('Allow', implode(', ', $allowedMethods))
-//            ->json()
-//            ->withJson([
-//                'error' => 'Method Not Allowed',
-//                'message' => 'The requested method is not allowed for this resource',
-//                'allowed_methods' => $allowedMethods
-//            ]);
-//    }
+    protected function handleMethodNotAllowed(ServerRequestInterface $request, array $allowedMethods): ResponseInterface
+    {
+        return (new Response())
+            ->status(405)
+            ->withHeader('Allow', implode(', ', $allowedMethods))
+            ->json()
+            ->withJson([
+                'error' => 'Method Not Allowed',
+                'message' => 'The requested method is not allowed for this resource',
+                'allowed_methods' => $allowedMethods
+            ]);
+    }
 
     /**
      * Handle an exception
@@ -449,74 +444,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             ->withJson($errorData);
     }
 
-//    public function handle(ServerRequestInterface $request): ResponseInterface
-//    {
-//        $response = $this->handleRequest($request);
-//
-//        /**
-//         * This is to be in compliance with RFC 2616, Section 9.
-//         * If the incoming request method is HEAD, we need to ensure that the response body
-//         * is empty as the request may fall back on a GET route handler due to FastRoute's
-//         * routing logic which could potentially append content to the response body
-//         * https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9.4
-//         */
-////        $method = strtoupper($request->getMethod());
-////        if ($method === 'HEAD') {
-////            $emptyBody = $this->responseFactory->createResponse()->getBody();
-////            return $response->withBody($emptyBody);
-////        }
-//
-//        return $response;
-//    }
-//
-//    /**
-//     * Handle HTTP request
-//     *
-//     * @param ServerRequestInterface|null $request
-//     * @return ResponseInterface
-//     */
-//    public function handleRequest(?ServerRequestInterface $request = null): ResponseInterface
-//    {
-//        // Make sure application is bootstrapped
-//        if (!$this->bootstrapped) {
-//            $this->bootstrap();
-//        }
-//
-//        // Create request from globals if not provided
-//        $request = $request ?? Request::createFromGlobals();
-//
-//        // Log incoming request
-//        $this->logRequest($request);
-//
-//        try {
-//            // Find matching route
-//            $routeInfo = $this->getRouter()->match(
-//                $request->getMethod(),
-//                $request->getUri()->getPath()
-//            );
-//
-//            // Create final handler for the route
-//            $finalHandler = $this->createRouteHandler($routeInfo);
-//
-//            // Process the request through middleware
-//            $response = $this->getMiddlewareManager()->process(
-//                $request,
-//                $request->getMethod(),
-//                $request->getUri()->getPath(),
-//                $finalHandler
-//            );
-//
-//            return $response;
-//        } catch (\Throwable $e) {
-//            $this->logger->error('Error handling request', [
-//                'error' => $e->getMessage(),
-//                'trace' => $e->getTraceAsString()
-//            ]);
-//
-//            return $this->handleException($e);
-//        }
-//    }
-
     /**
      * Log the incoming request details
      *
@@ -533,66 +460,17 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
     }
 
     /**
-     * Get middleware manager instance
-     *
-     * @return MiddlewareManager
-     */
-    public function getMiddlewareManager(): MiddlewareManager
-    {
-        if ($this->middlewareManager === null) {
-            $this->middlewareManager = $this->container->make(MiddlewareManager::class);
-        }
-
-        return $this->middlewareManager;
-    }
-
-    /**
-     * Get router (lazy-loaded)
+     * Get router instance from the container
      *
      * @return Router
      */
     public function getRouter(): Router
     {
-        return $this->container->make(Router::class);
-    }
+        if ($this->router === null) {
+            $this->router = $this->container->make(Router::class);
+        }
 
-    /**
-     * Handle method not allowed response
-     *
-     * @param ServerRequestInterface $request
-     * @param array $allowedMethods
-     * @return ResponseInterface
-     */
-    protected function handleMethodNotAllowed(ServerRequestInterface $request, array $allowedMethods): ResponseInterface
-    {
-        return (new Response())
-            ->status(405)
-            ->withHeader('Allow', implode(', ', $allowedMethods))
-            ->json()
-            ->withJson([
-                'error' => 'Method Not Allowed',
-                'message' => 'The requested method is not allowed for this resource',
-                'allowed_methods' => $allowedMethods
-            ]);
-    }
-
-    /**
-     * Handle not found response
-     *
-     * @param ResponseInterface $response
-     * @param ServerRequestInterface $request
-     * @return ResponseInterface
-     */
-    protected function handleNotFound(ServerRequestInterface $request): ResponseInterface
-    {
-        return (new Response())
-            ->status(404)
-            ->json()
-            ->withJson([
-                'error' => 'Not Found',
-                'message' => 'The requested resource was not found',
-                'path' => $request->getUri()->getPath()
-            ]);
+        return $this->router;
     }
 
     /**
@@ -602,11 +480,29 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      */
     public function getResponseEmitter(): ResponseEmitter
     {
-        return new ResponseEmitter(
-            $this->container->make(LoggerInterface::class),
-            true,
-            8192
-        );
+        if ($this->responseEmitter === null) {
+            $this->responseEmitter = new ResponseEmitter(
+                $this->container->make(LoggerInterface::class),
+                true,
+                8192
+            );
+        }
+
+        return $this->responseEmitter;
+    }
+
+    /**
+     * Get the route service
+     *
+     * @return RouteService
+     */
+    public function getRouteService(): RouteService
+    {
+        if ($this->routeService === null) {
+            $this->routeService = $this->container->make(RouteService::class);
+        }
+
+        return $this->routeService;
     }
 
     /**
@@ -616,7 +512,12 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      */
     public function runningInConsole(): bool
     {
-        return $this->container->get('runningInConsole');
+        if (!$this->consoleDetected) {
+            $this->runningInConsole = $this->container->get('runningInConsole');
+            $this->consoleDetected = true;
+        }
+
+        return $this->runningInConsole;
     }
 
     /**

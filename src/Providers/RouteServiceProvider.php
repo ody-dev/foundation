@@ -2,150 +2,63 @@
 
 namespace Ody\Foundation\Providers;
 
-use Ody\Container\Container;
-use Ody\Foundation\Loaders\RouteLoader;
 use Ody\Foundation\MiddlewareManager;
-use Ody\Foundation\Router;
-use Ody\Support\Config;
-use Psr\Log\LoggerInterface;
+use Ody\Foundation\Router\Router;
+use Ody\Foundation\Router\RouteService;
 
 /**
  * Route Service Provider
  *
- * Handles route registration and loading.
+ * Registers and bootstraps the routing services for the application.
  */
 class RouteServiceProvider extends ServiceProvider
 {
     /**
-     * The route loader instance.
-     *
-     * @var RouteLoader|null
-     */
-    protected ?RouteLoader $routeLoader = null;
-
-    /**
-     * The base path for route files.
-     *
-     * @var string
-     */
-    protected string $routesPath = '';
-
-    /**
-     * Register the service provider.
+     * Register route-related services
      *
      * @return void
      */
     public function register(): void
     {
-        // Register RouteLoader as a singleton
-        $this->singleton(RouteLoader::class, function (Container $container) {
-            logger()->debug('RouteServiceProvider::singleton(RouteLoader)...');
-
-            // Get the router instance from the container
-            $router = $container->make(Router::class);
-
-            // Get the middleware manager
-            $middlewareManager = $container->make(MiddlewareManager::class);
-
-            // Get the logger
-            $logger = $container->make(LoggerInterface::class);
-
-            return new RouteLoader($router, $middlewareManager, $container, $logger);
+        // Register the Router in the container
+        $this->container->singleton(Router::class, function ($container) {
+            return new Router(
+                $container,
+                $container->make(MiddlewareManager::class),
+            );
         });
 
-        // Register the route loader alias
-        $this->alias(RouteLoader::class, 'route.loader');
+        // Register the RouteService in the container
+        $this->container->singleton(RouteService::class, function ($container) {
+            return new RouteService(
+                $container,
+                $container->make(Router::class),
+                $container->make(MiddlewareManager::class),
+                logger(),
+            );
+        });
 
-        // Set route path from configuration
-        $config = $this->make(Config::class);
-        $this->routesPath = $config->get('app.routes.path', base_path('routes'));
+        // Make Router and RouteService available via aliases
+        $this->container->alias(Router::class, 'router');
+        $this->container->alias(RouteService::class, 'route.service');
     }
 
     /**
-     * Bootstrap the service provider.
+     * Bootstrap routing services
+     *
+     * Load all application routes during bootstrap phase
      *
      * @return void
      */
     public function boot(): void
     {
-        // Don't load routes during bootstrap, they'll be loaded on demand
-        $this->routeLoader = $this->make(RouteLoader::class);
+        // Only bootstrap in HTTP context (skip for console)
+//        if ($this->isRunningInConsole()) {
+//            logger()->debug("RouteServiceProvider: Skipping route loading in console context");
+//            return;
+//        }
 
-        // Only register the route loader, but don't load routes yet
-        logger()->debug("RouteServiceProvider: Setting up lazy route loading");
-    }
-
-    /**
-     * Load routes from a path or the default routes directory.
-     *
-     * @param string|null $path Path to a route file or directory
-     * @param array $attributes Optional route group attributes
-     * @return void
-     */
-    public function loadRoutes(?string $path = null, array $attributes = []): void
-    {
-        // If no path provided, load from default routes location
-        if ($path === null) {
-            $this->loadDefaultRoutes();
-            return;
-        }
-
-        // Check if the path is a directory or file
-        if (is_dir($path)) {
-            $this->routeLoader->loadDirectory($path, $attributes);
-        } else if (file_exists($path)) {
-            $this->routeLoader->load($path, $attributes);
-        } else {
-            // Try prepending base path if the path is relative
-            $fullPath = function_exists('base_path') ? base_path($path) : $path;
-
-            if (is_dir($fullPath)) {
-                $this->routeLoader->loadDirectory($fullPath, $attributes);
-            } else if (file_exists($fullPath)) {
-                $this->routeLoader->load($fullPath, $attributes);
-            } else {
-                logger()->warning("Route path not found: {$path}");
-            }
-        }
-    }
-
-    /**
-     * Load the default application routes.
-     *
-     * @return void
-     */
-    protected function loadDefaultRoutes(): void
-    {
-        if (!is_dir($this->routesPath)) {
-            return;
-        }
-
-        // Load main web routes
-        $webRoutesFile = $this->routesPath . '/web.php';
-        if (file_exists($webRoutesFile)) {
-            $this->routeLoader->load($webRoutesFile);
-        }
-
-        // Load API routes with appropriate prefixing and middleware
-        $apiRoutesFile = $this->routesPath . '/api.php';
-        if (file_exists($apiRoutesFile)) {
-            $this->routeLoader->load($apiRoutesFile, [
-                'prefix' => '/api',
-                'middleware' => ['api'],
-            ]);
-        }
-
-        // Load all other route files in the directory
-        $this->routeLoader->loadDirectory($this->routesPath);
-    }
-
-    /**
-     * Get the services provided by the provider.
-     *
-     * @return array
-     */
-    public function provides(): array
-    {
-        return [RouteLoader::class, 'route.loader'];
+        // Load all application routes
+        $this->container->make('route.service')->bootRoutes();
     }
 }

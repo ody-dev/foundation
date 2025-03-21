@@ -11,7 +11,7 @@ namespace Tests\Unit\Foundation;
 
 use Ody\Container\Container;
 use Ody\Foundation\Middleware\MiddlewareRegistry;
-use Ody\Foundation\Router;
+use Ody\Foundation\Router\Router;
 use Tests\TestCase;
 
 class RouterTest extends TestCase

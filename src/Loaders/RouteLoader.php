@@ -4,7 +4,7 @@ namespace Ody\Foundation\Loaders;
 
 use Ody\Container\Container;
 use Ody\Foundation\MiddlewareManager;
-use Ody\Foundation\Router;
+use Ody\Foundation\Router\Router;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 

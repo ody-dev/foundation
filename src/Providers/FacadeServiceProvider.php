@@ -4,7 +4,7 @@ namespace Ody\Foundation\Providers;
 use Ody\Foundation\Facades\Facade;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
-use Ody\Foundation\Router;
+use Ody\Foundation\Router\Router;
 use Ody\Support\AliasLoader;
 use Ody\Support\Config;
 

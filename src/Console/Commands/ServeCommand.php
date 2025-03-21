@@ -12,7 +12,7 @@ namespace Ody\Foundation\Console\Commands;
 use Ody\Foundation\Bootstrap;
 use Ody\Foundation\Console\Command;
 use Ody\Foundation\HttpServer;
-use Ody\Foundation\Router;
+use Ody\Foundation\Router\Router;
 use Ody\Server\ServerManager;
 use Ody\Server\ServerType;
 use Ody\Server\State\HttpServerState;

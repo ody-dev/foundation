@@ -7,7 +7,7 @@ use Ody\Foundation\Middleware\CorsMiddleware;
 use Ody\Foundation\Middleware\JsonBodyParserMiddleware;
 use Ody\Foundation\Middleware\LoggingMiddleware;
 use Ody\Foundation\MiddlewareManager;
-use Ody\Foundation\Router;
+use Ody\Foundation\Router\Router;
 use Ody\Support\Config;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ServerRequestFactoryInterface;

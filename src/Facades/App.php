@@ -12,7 +12,7 @@ namespace Ody\Foundation\Facades;
 /**
  * App Facade
  *
- * @method static \Ody\Foundation\Router getRouter()
+ * @method static \Ody\Foundation\Router\Router getRouter()
  * @method static \Ody\Foundation\Middleware\Middleware getMiddleware()
  * @method static \Ody\Container getContainer()
  * @method static \Psr\Http\Message\ResponseInterface handleRequest(\Psr\Http\Message\ServerRequestInterface $request = null)

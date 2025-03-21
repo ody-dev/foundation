@@ -19,7 +19,7 @@ return [
         'App' => Ody\Foundation\Application::class,
         'Config' => \Ody\Support\Config::class,
         'Env' => \Ody\Support\Env::class,
-        'Router' => Ody\Foundation\Router::class,
+        'Router' => \Ody\Foundation\Router\Router::class,
         'Request' => Ody\Foundation\Http\Request::class,
         'Response' => Ody\Foundation\Http\Response::class,
     ],
@@ -41,7 +41,7 @@ return [
         'named' => [
             // Authentication middleware with different guards
             'auth' => Ody\Foundation\Middleware\AuthMiddleware::class,
-            'auth:api' => \Ody\Auth\Middleware\Authenticate::class,
+            'auth:api' => \Ody\Auth\Middleware\AuthMiddleware::class,
             'auth:jwt' => Ody\Foundation\Middleware\AuthMiddleware::class,
             'auth:session' => Ody\Foundation\Middleware\AuthMiddleware::class,
 

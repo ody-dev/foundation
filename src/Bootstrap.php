@@ -6,6 +6,7 @@ namespace Ody\Foundation;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Ody\Foundation\Router\Router;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -41,18 +42,15 @@ class Bootstrap
                 self::$instance->bootstrap();
             }
 
-            // logger()->debug("Bootstrap::init() returning existing application instance");
             return self::$instance;
         }
 
         if (self::$bootstrapping) {
-            // logger()->warning("Bootstrap::init() called recursively");
             exit(1); // TODO: throw appropriate exception;
         }
 
         // Set bootstrapping flag to prevent recursion
         self::$bootstrapping = true;
-        // logger()->debug("Bootstrap::init() creating new application instance");
 
         try {
             self::initBasePath($basePath);
@@ -60,6 +58,13 @@ class Bootstrap
 
             $providerManager = new ServiceProviderManager($container);
             $container->instance(ServiceProviderManager::class, $providerManager);
+
+            // Determine if we're running in console mode
+            $runningInConsole = self::detectConsoleMode();
+            $container->instance('runningInConsole', $runningInConsole);
+
+            // Register early classes needed for successful application instantiation
+            self::registerEarlyClasses($container, $providerManager);
 
             // Create application but don't bootstrap it yet
             $application = self::createApplication($container, $providerManager);
@@ -113,6 +118,40 @@ class Bootstrap
     }
 
     /**
+     * Register essential classes needed before full application bootstrap
+     *
+     * @param Container $container
+     * @param ServiceProviderManager $providerManager
+     * @return void
+     */
+    private static function registerEarlyClasses(Container $container, ServiceProviderManager $providerManager): void
+    {
+        // Register a temporary logger until the logging provider is initialized
+        $container->singleton(LoggerInterface::class, function() {
+            return new NullLogger();
+        });
+
+        // Register Router with singleton lifecycle
+        $container->singleton(Router::class, function ($container) {
+            return new Router(
+                $container,
+                $container->has(MiddlewareManager::class) ? $container->make(MiddlewareManager::class) : null
+            );
+        });
+
+        // Alias for convenient service location
+        $container->alias(Router::class, 'router');
+
+        // MiddlewareManager registration
+        $container->singleton(MiddlewareManager::class, function ($container) {
+            return new MiddlewareManager($container);
+        });
+        $container->alias(MiddlewareManager::class, 'middleware.manager');
+
+        // RouteGroup requires no registration
+    }
+
+    /**
      * Create and bootstrap the application
      *
      * @param Container $container
@@ -128,7 +167,18 @@ class Bootstrap
             : new Application($container, $providerManager);
 
         $container->instance(Application::class, $application);
+        $container->alias(Application::class, 'app');
 
         return $application;
+    }
+
+    /**
+     * Detect if the application is running in console mode
+     *
+     * @return bool
+     */
+    private static function detectConsoleMode(): bool
+    {
+        return php_sapi_name() === 'cli';
     }
 }
