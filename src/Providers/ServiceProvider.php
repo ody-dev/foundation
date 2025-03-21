@@ -4,6 +4,8 @@ namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
 use Ody\Foundation\Console\CommandRegistry;
+use Ody\Foundation\Loaders\RouteLoader;
+use Ody\Foundation\Router\Router;
 
 /**
  * Base Service Provider
@@ -184,8 +186,8 @@ abstract class ServiceProvider
             return;
         }
 
-        $router = $this->container->make('router');
-        $routeLoader = $this->container->make('route.loader');
+        $router = $this->container->make(Router::class);
+        $routeLoader = $this->container->make(RouteLoader::class);
 
         if (!empty($attributes)) {
             $router->group($attributes, function () use ($routeLoader, $path) {
@@ -216,8 +218,8 @@ abstract class ServiceProvider
         }
 
         // Fallback to the RouteLoader if available
-        if ($this->container->has('route.loader')) {
-            $routeLoader = $this->container->make('route.loader');
+        if ($this->container->has(RouteLoader::class)) {
+            $routeLoader = $this->container->make(RouteLoader::class);
 
             if (is_dir($path)) {
                 $routeLoader->loadDirectory($path, $attributes);
