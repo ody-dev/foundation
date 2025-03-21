@@ -85,7 +85,7 @@ class HttpServer
      * @param SwRequest $request
      * @return void
      */
-    private static function setContext(SwRequest $request): void
+    public static function setContext(SwRequest $request): void
     {
         ContextManager::set('_GET', (array)$request->get);
         ContextManager::set('_GET', (array)$request->get);
