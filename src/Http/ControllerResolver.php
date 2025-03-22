@@ -121,55 +121,8 @@ class ControllerResolver
 
             $this->logger->debug("Attempting to create controller: {$class}");
 
-            // First try to resolve from container directly
-            if ($this->container->has($class)) {
-                $this->logger->debug("Container has binding for {$class}, using container->make()");
-                return $this->container->make($class);
-            }
-
-            // Use dependency cache to resolve constructor parameters
-            $dependencyCache = $this->container->make(ControllerDependencyCache::class);
-            $dependencies = $dependencyCache->has($class)
-                ? $dependencyCache->get($class)
-                : $dependencyCache->analyze($class);
-
-            // No dependencies, create directly
-            if (empty($dependencies)) {
-                $this->logger->debug("{$class} has no constructor or no parameters, creating directly");
-                return new $class();
-            }
-
-            // Resolve dependencies using cached information
-            $parameters = [];
-            foreach ($dependencies as $paramInfo) {
-                // For typed parameters that aren't built-in types
-                if ($paramInfo['hasType'] && !$paramInfo['isBuiltin']) {
-                    $typeName = $paramInfo['type'];
-
-                    // Try to resolve from container
-                    try {
-                        $parameters[] = $this->container->make($typeName);
-                        continue;
-                    } catch (\Throwable $e) {
-                        $this->logger->debug("Failed to resolve {$typeName} from container: {$e->getMessage()}");
-                    }
-                }
-
-                // Fall back to default value if available
-                if ($paramInfo['optional']) {
-                    $parameters[] = $paramInfo['defaultValue'] ?? null;
-                } else {
-                    // If required parameter can't be resolved, throw exception
-                    throw new \RuntimeException(
-                        "Required parameter '{$paramInfo['name']}' could not be resolved for {$class}"
-                    );
-                }
-            }
-
-            // Create instance with resolved parameters
-            $reflectionClass = new \ReflectionClass($class);
-            return $reflectionClass->newInstanceArgs($parameters);
-
+            // Get controller from pool
+            return ControllerPool::get($class, $this->container);
         } catch (\Throwable $e) {
             $this->logger->error("Error creating controller", [
                 'controller' => $class,

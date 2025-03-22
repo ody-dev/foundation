@@ -6,10 +6,12 @@ use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
+use Ody\Foundation\Http\ControllerPool;
 use Ody\Foundation\Middleware;
 use Ody\Foundation\Middleware\MiddlewarePipeline;
 use Ody\Foundation\MiddlewareManager;
 use function FastRoute\simpleDispatcher;
+
 //use function Ody\Foundation\gettype;
 
 class Router
@@ -158,6 +160,11 @@ class Router
         logger()->debug("Router: Registered {$method} route: {$path}");
 
         return $route;
+    }
+
+    public function getRoutes(): array
+    {
+        return $this->routes;
     }
 
     /**
@@ -338,17 +345,23 @@ class Router
     {
         // Only process string handlers in Controller@method format
         if (is_string($handler) && strpos($handler, '@') !== false) {
-            list($class, $method) = explode('@', $handler, 2);
+            // Cache resolved handlers
+            static $resolvedHandlers = [];
 
-            // Use the container to resolve the controller if available
-            if ($this->container) {
-                $controller = $this->container->make($class);
-                return [$controller, $method];
+            if (isset($resolvedHandlers[$handler])) {
+                return $resolvedHandlers[$handler];
             }
 
-            // Fallback: create controller instance directly
-            $controller = new $class();
-            return [$controller, $method];
+            list($class, $method) = explode('@', $handler, 2);
+
+            // Get controller from pool
+            $controller = ControllerPool::get($class, $this->container);
+            $callable = [$controller, $method];
+
+            // Cache the resolved handler
+            $resolvedHandlers[$handler] = $callable;
+
+            return $callable;
         }
 
         // If it's already a callable or not in Controller@method format, return as is

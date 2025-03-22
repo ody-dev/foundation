@@ -12,6 +12,7 @@ namespace Ody\Foundation;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Http\ControllerDispatcher;
+use Ody\Foundation\Http\ControllerPool;
 use Ody\Foundation\Http\ControllerResolver;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
@@ -20,14 +21,12 @@ use Ody\Foundation\Providers\ApplicationServiceProvider;
 use Ody\Foundation\Providers\ConfigServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
-use Ody\Foundation\Providers\RouteServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
 use Ody\Foundation\Router\Router;
 use Ody\Foundation\Router\RouteService;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
@@ -184,6 +183,9 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
 
         // Boot all registered providers
         $this->providerManager->boot();
+
+        // Pre-cache all controllers
+        $this->precacheControllers();
 
         $this->bootstrapped = true;
         logger()->debug("Application::bootstrap() completed");
@@ -359,6 +361,24 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         }
 
         return $this->middlewareManager;
+    }
+
+    public function precacheControllers()
+    {
+        $router = $this->container->make(Router::class);
+        $routes = $router->getRoutes();
+
+        foreach ($routes as $route) {
+            $handler = $route[2]; // The handler
+
+            // If it's a controller@method string format
+            if (is_string($handler) && strpos($handler, '@') !== false) {
+                list($class, $method) = explode('@', $handler, 2);
+
+                // This will cache the controller
+                ControllerPool::get($class, $this->container);
+            }
+        }
     }
 
     /**

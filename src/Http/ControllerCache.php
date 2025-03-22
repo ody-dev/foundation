@@ -22,7 +22,7 @@ class ControllerCache
     {
         if (self::$table === null) {
             self::$table = new Table(1024);
-            self::$table->column('instance', Table::TYPE_STRING, 64); // Store class name
+            self::$table->column('instance', Table::TYPE_STRING, 512); // Store class name
             self::$table->create();
         }
     }
