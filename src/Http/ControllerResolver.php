@@ -33,6 +33,11 @@ class ControllerResolver
     protected LoggerInterface $logger;
 
     /**
+     * @var array
+     */
+    private array $resolvedControllers = [];
+
+    /**
      * Constructor
      *
      * @param Container $container
@@ -114,31 +119,57 @@ class ControllerResolver
                 throw new \RuntimeException("Controller class '{$class}' does not exist");
             }
 
-            // Log attempt
             $this->logger->debug("Attempting to create controller: {$class}");
 
-            // First try to resolve using the container's make method
-            try {
-                // Does the container know about this class?
-                if ($this->container->has($class)) {
-                    $this->logger->debug("Container has binding for {$class}, using container->make()");
-                    return $this->container->make($class);
+            // First try to resolve from container directly
+            if ($this->container->has($class)) {
+                $this->logger->debug("Container has binding for {$class}, using container->make()");
+                return $this->container->make($class);
+            }
+
+            // Use dependency cache to resolve constructor parameters
+            $dependencyCache = $this->container->make(ControllerDependencyCache::class);
+            $dependencies = $dependencyCache->has($class)
+                ? $dependencyCache->get($class)
+                : $dependencyCache->analyze($class);
+
+            // No dependencies, create directly
+            if (empty($dependencies)) {
+                $this->logger->debug("{$class} has no constructor or no parameters, creating directly");
+                return new $class();
+            }
+
+            // Resolve dependencies using cached information
+            $parameters = [];
+            foreach ($dependencies as $paramInfo) {
+                // For typed parameters that aren't built-in types
+                if ($paramInfo['hasType'] && !$paramInfo['isBuiltin']) {
+                    $typeName = $paramInfo['type'];
+
+                    // Try to resolve from container
+                    try {
+                        $parameters[] = $this->container->make($typeName);
+                        continue;
+                    } catch (\Throwable $e) {
+                        $this->logger->debug("Failed to resolve {$typeName} from container: {$e->getMessage()}");
+                    }
                 }
 
-                // Try to make the controller even if it's not explicitly bound
-                $this->logger->debug("No explicit binding for {$class}, trying container->make() anyway");
-                $instance = $this->container->make($class);
-                $this->logger->debug("Successfully created {$class} via container");
-                return $instance;
-            } catch (\Throwable $containerException) {
-                // Log container error
-                $this->logger->warning("Container failed to create {$class}: {$containerException->getMessage()}");
-                $this->logger->debug("Container error trace: {$containerException->getTraceAsString()}");
-
-                // Fall back to reflection-based instantiation with more debug info
-                $this->logger->debug("Falling back to reflection-based instantiation for {$class}");
-                return $this->createControllerWithReflection($class);
+                // Fall back to default value if available
+                if ($paramInfo['optional']) {
+                    $parameters[] = $paramInfo['defaultValue'] ?? null;
+                } else {
+                    // If required parameter can't be resolved, throw exception
+                    throw new \RuntimeException(
+                        "Required parameter '{$paramInfo['name']}' could not be resolved for {$class}"
+                    );
+                }
             }
+
+            // Create instance with resolved parameters
+            $reflectionClass = new \ReflectionClass($class);
+            return $reflectionClass->newInstanceArgs($parameters);
+
         } catch (\Throwable $e) {
             $this->logger->error("Error creating controller", [
                 'controller' => $class,
@@ -149,6 +180,63 @@ class ControllerResolver
             throw new \RuntimeException("Error creating controller: {$e->getMessage()}", 0, $e);
         }
     }
+
+//    public function createController(string $class): object
+//    {
+//        try {
+//            // Check global cache first
+//            // TODO: rm Controller Cache and use the application cache
+////            $controllerCache = $this->container->get(ControllerCache::class);
+////            $controllerCache = ControllerCache
+//            if (ControllerCache::has($class)) {
+//                $this->logger->debug("Using cached controller instance for {$class}");
+//                return ControllerCache::get($class);
+//            }
+//
+//            // First check if the controller exists
+//            if (!class_exists($class)) {
+//                throw new \RuntimeException("Controller class '{$class}' does not exist");
+//            }
+//
+//            // Log attempt
+//            $this->logger->debug("Attempting to create controller: {$class}");
+//
+//            // First try to resolve using the container's make method
+//            try {
+//                // Does the container know about this class?
+//                if ($this->container->has($class)) {
+//                    $this->logger->debug("Container has binding for {$class}, using container->make()");
+//                    return $this->container->make($class);
+//                }
+//
+//                // Try to make the controller even if it's not explicitly bound
+//                $this->logger->debug("No explicit binding for {$class}, trying container->make() anyway");
+//                $instance = $this->container->make($class);
+//                $this->logger->debug("Successfully created {$class} via container");
+//
+//                // Cache the controller instance
+//                ControllerCache::set($class, $instance);
+//
+//                return $instance;
+//            } catch (\Throwable $containerException) {
+//                // Log container error
+//                $this->logger->warning("Container failed to create {$class}: {$containerException->getMessage()}");
+//                $this->logger->debug("Container error trace: {$containerException->getTraceAsString()}");
+//
+//                // Fall back to reflection-based instantiation with more debug info
+//                $this->logger->debug("Falling back to reflection-based instantiation for {$class}");
+//                return $this->createControllerWithReflection($class);
+//            }
+//        } catch (\Throwable $e) {
+//            $this->logger->error("Error creating controller", [
+//                'controller' => $class,
+//                'error' => $e->getMessage(),
+//                'trace' => $e->getTraceAsString()
+//            ]);
+//
+//            throw new \RuntimeException("Error creating controller: {$e->getMessage()}", 0, $e);
+//        }
+//    }
 
     /**
      * Create a controller using reflection to resolve dependencies
