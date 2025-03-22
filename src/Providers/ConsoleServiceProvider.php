@@ -12,6 +12,7 @@ namespace Ody\Foundation\Providers;
 use Ody\Container\Container;
 use Ody\Foundation\Console\CommandRegistry;
 use Ody\Foundation\Console\Commands\EnvironmentCommand;
+use Ody\Foundation\Console\Commands\PublishCommand;
 use Ody\Foundation\Console\ConsoleKernel;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -66,9 +67,7 @@ class ConsoleServiceProvider extends ServiceProvider
         // Store commands for deferred registration in boot()
         $this->commands = [
             EnvironmentCommand::class,
-//            MakeCommand::class,
-//            ServeCommand::class,
-//            TestCommand::class,
+            PublishCommand::class
         ];
     }
 

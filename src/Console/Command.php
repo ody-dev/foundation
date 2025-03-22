@@ -12,7 +12,6 @@ namespace Ody\Foundation\Console;
 use Ody\Container\Container;
 use Ody\Foundation\Application;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
@@ -90,7 +89,7 @@ abstract class Command extends SymfonyCommand
         $this->setDescription($this->description);
 
         // Add custom options and arguments
-        $this->configure();
+//        $this->configure();
     }
 
     /**

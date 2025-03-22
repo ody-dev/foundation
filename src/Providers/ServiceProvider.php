@@ -5,6 +5,7 @@ namespace Ody\Foundation\Providers;
 use Ody\Container\Container;
 use Ody\Foundation\Console\CommandRegistry;
 use Ody\Foundation\Loaders\RouteLoader;
+use Ody\Foundation\Publishing\Publisher;
 use Ody\Foundation\Router\Router;
 
 /**
@@ -273,6 +274,51 @@ abstract class ServiceProvider
                 $this->container->tag($abstract, $tag);
             }
         }
+    }
+
+    /**
+     * Register publishable assets for the service provider
+     *
+     * @param array $paths Asset paths in format ['source' => 'destination']
+     * @param string $type The type of asset (config, migrations, etc.)
+     * @return self
+     */
+    protected function publishes(array $paths, string $package = null, string $type = 'config'): self
+    {
+        // Skip if not in console or publisher doesn't exist
+        if (!$this->container->has(Publisher::class)) {
+            return $this;
+        }
+
+        // Get the package name from the provider class
+        if ($package === null) {
+            $package = $this->getPackageName();
+        }
+
+        // Register with the publisher
+        $publisher = $this->container->make(Publisher::class);
+        $publisher->registerPackage($package, [$type => $paths]);
+
+        return $this;
+    }
+
+    /**
+     * Get the package name from the provider class
+     *
+     * @return string
+     */
+    protected function getPackageName(): string
+    {
+        $class = get_class($this);
+        $parts = explode('\\', $class);
+
+        // Try to determine package name from namespace
+        // Assumes format like Ody\PackageName\Providers
+        if (count($parts) >= 2) {
+            return strtolower($parts[1]);
+        }
+
+        return 'unknown';
     }
 
     /**

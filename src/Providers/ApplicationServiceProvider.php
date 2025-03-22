@@ -77,8 +77,6 @@ class ApplicationServiceProvider extends ServiceProvider
             return new ControllerCache();
         });
 
-//        ControllerCache::init();
-
         // Register the dependency cache as a singleton
         $this->container->singleton(ControllerDependencyCache::class, function () {
             return new ControllerDependencyCache();

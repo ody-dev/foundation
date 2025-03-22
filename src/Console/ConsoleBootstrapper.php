@@ -16,8 +16,9 @@ use Ody\Foundation\Providers\ConsoleServiceProvider;
 use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Ody\Foundation\Publishing\Publisher;
+use Ody\Logger\NullLogger;
 use Ody\Support\Config;
-use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Application as ConsoleApplication;
 
 /**
@@ -61,6 +62,13 @@ class ConsoleBootstrapper
             : new ServiceProviderManager($container);
 
         $container->instance(ServiceProviderManager::class, $providerManager);
+
+        $container->singleton(Publisher::class, function ($container) {
+            return new Publisher(
+                $container,
+                new NullLogger()
+            );
+        });
 
         // Register core providers
         self::registerServiceProviders($providerManager);
