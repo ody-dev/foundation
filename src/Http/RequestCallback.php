@@ -136,9 +136,8 @@ final class RequestCallback
             $parsedBody = json_decode($rawBody, true);
             if (json_last_error() === JSON_ERROR_NONE) {
                 $serverRequest = $serverRequest->withParsedBody($parsedBody);
-                error_log("RequestCallback: Parsed JSON body successfully");
             } else {
-                error_log("RequestCallback: Failed to parse JSON body: " . json_last_error_msg());
+                logger()->error("RequestCallback: Failed to parse JSON body: " . json_last_error_msg());
             }
         }
         // For form data requests

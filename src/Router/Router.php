@@ -181,8 +181,9 @@ class Router
 
         logger()->debug("Router::match() {$method} {$path}");
 
-        // Create dispatcher if not already created
+        // Create dispatcher only if needed and not already registered
         if ($this->dispatcher === null) {
+            logger()->debug("Router: dispatcher was null even though routes are registered");
             $this->dispatcher = $this->createDispatcher();
         }
 
@@ -323,6 +324,7 @@ class Router
      */
     private function createDispatcher(): Dispatcher
     {
+        logger()->debug("Router::createDispatcher()");
         return simpleDispatcher(function (RouteCollector $r) {
             foreach ($this->routes as $route) {
                 $method = $route[0];
