@@ -16,20 +16,22 @@ class ControllerDependencyCache
      */
     public function analyze(string $class): array
     {
-        // Return cached dependencies if already analyzed
-        if (self::$table->exists($class)) {
-            $data = self::$table->get($class, 'dependencies');
-            $dependencies = unserialize($data);
-            var_dump($dependencies);
-            logger()->debug("ControllerDependencyCache::analyze() using cached dependencies: $class");
-            return $dependencies;
+        $controllerCacheEnabled = config('app.controller_cache.enabled');
+        if ($controllerCacheEnabled) {
+            // Return cached dependencies if already analyzed
+            if (self::$table->exists($class)) {
+                $data = self::$table->get($class, 'dependencies');
+                $dependencies = unserialize($data);
+                var_dump($dependencies);
+                logger()->debug("ControllerDependencyCache::analyze() using cached dependencies: $class");
+                return $dependencies;
+            }
+
+            logger()->debug("ControllerDependencyCache::analyze() no cached dependencies found: $class");
         }
 
-        logger()->debug("ControllerDependencyCache::analyze() no cached dependencies found: $class");
-
-        $dependencies = [];
-
         try {
+            $dependencies = [];
             $reflectionClass = new \ReflectionClass($class);
             $constructor = $reflectionClass->getConstructor();
 
@@ -69,8 +71,10 @@ class ControllerDependencyCache
                 $dependencies[] = $paramInfo;
             }
 
-            // Cache the dependency information
-            self::$table->set($class, ['dependencies' => serialize($dependencies)]);
+            if (config('app.controller_cache.enabled')) {
+                // Cache the dependency information
+                self::$table->set($class, ['dependencies' => serialize($dependencies)]);
+            }
 
             return $dependencies;
 
