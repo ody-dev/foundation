@@ -9,10 +9,10 @@
 
 namespace Ody\Foundation\Http;
 
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\StreamInterface;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as PsrResponse;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 /**
  * PSR-7 compatible HTTP Response
@@ -82,9 +82,12 @@ class Response implements ResponseInterface
      *
      * @return self
      */
-    public function json(): self
+    public function json($data, int $options = 0): self
     {
-        return $this->contentType('application/json');
+        $json = json_encode($data, $options);
+
+        return $this->contentType('application/json')
+            ->body($json);
     }
 
     /**
@@ -130,12 +133,13 @@ class Response implements ResponseInterface
      * @param int $options JSON encoding options
      * @return self
      */
-    public function withJson($data, int $options = 0): self
+    public function withJson($data, int $status = 200, int $options = 0): self
     {
         $json = json_encode($data, $options);
 
         return $this
-            ->json()
+            ->status($status)
+            ->contentType('application/json')
             ->body($json);
     }
 
