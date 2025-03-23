@@ -7,6 +7,8 @@ use Ody\Foundation\Http\Response;
 use Ody\Foundation\Router\Router;
 use Ody\Support\AliasLoader;
 use Ody\Support\Config;
+use Ody\Support\GlobalClassLoader;
+use Ody\Support\GlobalImports;
 
 /**
  * Service provider for facades
@@ -79,5 +81,31 @@ class FacadeServiceProvider extends ServiceProvider
 
         // Register the alias autoloader
         $loader->register();
+
+        // Register global imports
+        $this->registerGlobalImports($config);
+    }
+
+    /**
+     * Register global class imports
+     *
+     * @param Config $config
+     * @return void
+     */
+    protected function registerGlobalImports(Config $config): void
+    {
+        // Get facades that should be available as global imports
+        $globalFacades = $config->get('app.global_facades', [
+            \Ody\Foundation\Facades\Cache::class,
+            \Ody\Foundation\Facades\Route::class,
+            \Ody\Foundation\Facades\Config::class,
+//            \Ody\Foundation\Facades\Log::class,
+        ]);
+
+        // Register the global imports
+        GlobalImports::registerMany($globalFacades);
+
+        // Register the global class loader
+        GlobalClassLoader::register();
     }
 }

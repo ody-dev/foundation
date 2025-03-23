@@ -7,6 +7,8 @@ use Ody\Foundation\Cache\Adapters\MemcachedAdapter;
 use Ody\Foundation\Cache\Adapters\RedisAdapter;
 use Ody\Foundation\Cache\Exceptions\CacheException;
 use Ody\Foundation\Cache\PSR16\SimpleCache;
+use Ody\Foundation\Cache\PSR6\CacheItemPool;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\SimpleCache\CacheInterface;
 
 class CacheManager
@@ -24,6 +26,11 @@ class CacheManager
     /**
      * @var array
      */
+    protected array $pools = [];
+
+    /**
+     * @var array
+     */
     protected array $customDrivers = [];
 
     /**
@@ -35,7 +42,7 @@ class CacheManager
     }
 
     /**
-     * Get a cache driver instance
+     * Get a PSR-16 cache driver instance
      *
      * @param string|null $driver
      * @return CacheInterface
@@ -50,6 +57,26 @@ class CacheManager
         }
 
         return $this->drivers[$driver] = $this->resolve($driver);
+    }
+
+    /**
+     * Get a PSR-6 cache pool instance
+     *
+     * @param string|null $driver
+     * @return CacheItemPoolInterface
+     * @throws CacheException
+     */
+    public function pool(?string $driver = null): CacheItemPoolInterface
+    {
+        $driver = $driver ?? $this->config['default'] ?? 'array';
+
+        if (isset($this->pools[$driver])) {
+            return $this->pools[$driver];
+        }
+
+        // Get PSR-16 driver and wrap it with a PSR-6 pool
+        $simpleCache = $this->driver($driver);
+        return $this->pools[$driver] = new CacheItemPool($simpleCache);
     }
 
     /**
@@ -136,5 +163,39 @@ class CacheManager
         $adapter = new ArrayAdapter($config);
 
         return new SimpleCache($adapter);
+    }
+
+    /**
+     * Create a tagged cache instance
+     *
+     * @param array|string $tags
+     * @return TaggedCache
+     */
+    public function tags($tags): TaggedCache
+    {
+        $tags = is_array($tags) ? $tags : [$tags];
+
+        return new TaggedCache($this->driver(), $tags);
+    }
+
+    /**
+     * Dynamically call methods on the default cache driver
+     *
+     * @param string $method
+     * @param array $parameters
+     * @return mixed
+     */
+    public function __call(string $method, array $parameters)
+    {
+        // Special case for PSR-6 methods - direct to pool
+        $psr6Methods = ['getItem', 'getItems', 'hasItem', 'deleteItem', 'deleteItems',
+            'save', 'saveDeferred', 'commit'];
+
+        if (in_array($method, $psr6Methods)) {
+            return $this->pool()->{$method}(...$parameters);
+        }
+
+        // Default to PSR-16 methods
+        return $this->driver()->{$method}(...$parameters);
     }
 }
