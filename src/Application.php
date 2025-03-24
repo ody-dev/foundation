@@ -204,20 +204,13 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         $enableCaching = $config->get('app.controller_cache.enabled', true);
         $excludedControllers = $config->get('app.controller_cache.excluded', []);
 
-        // Apply configuration
-        if (!$enableCaching) {
+        ($enableCaching) ?
+            Http\ControllerPool::enableCaching() :
             Http\ControllerPool::disableCaching();
-            logger()->debug("Controller caching disabled");
-        } else {
-            Http\ControllerPool::enableCaching();
-            logger()->debug("Controller caching enabled");
-        }
 
         // Register excluded controllers
         if (!empty($excludedControllers)) {
             Http\ControllerPool::excludeControllers($excludedControllers);
-            logger()->debug("Excluded controllers from caching: " .
-                implode(', ', $excludedControllers));
         }
     }
 
