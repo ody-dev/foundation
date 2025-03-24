@@ -86,14 +86,6 @@ class ControllerDispatcher
             $method = $request->getMethod();
             $path = $request->getUri()->getPath();
 
-            // Log the dispatch attempt
-            $this->logger->debug("Dispatching to controller", [
-                'controller' => $controller,
-                'action' => $action,
-                'method' => $method,
-                'path' => $path
-            ]);
-
             // Get middleware for this controller/action
             $middlewareStack = $this->middlewareManager->getMiddlewareForRoute(
                 $method,
@@ -111,12 +103,6 @@ class ControllerDispatcher
                 foreach ($routeParams as $name => $value) {
                     $request = $request->withAttribute($name, $value);
                 }
-
-                // Log the controller execution
-                $this->logger->debug("Executing controller action", [
-                    'controller' => get_class($controllerInstance),
-                    'action' => $action
-                ]);
 
                 // Call the controller action with request, response, and any route parameters
                 return call_user_func([$controllerInstance, $action], $request, $response, $routeParams);

@@ -22,12 +22,8 @@ class ControllerDependencyCache
             if (self::$table->exists($class)) {
                 $data = self::$table->get($class, 'dependencies');
                 $dependencies = unserialize($data);
-                var_dump($dependencies);
-                logger()->debug("ControllerDependencyCache::analyze() using cached dependencies: $class");
                 return $dependencies;
             }
-
-            logger()->debug("ControllerDependencyCache::analyze() no cached dependencies found: $class");
         }
 
         try {

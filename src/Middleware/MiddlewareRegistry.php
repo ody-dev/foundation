@@ -111,11 +111,6 @@ class MiddlewareRegistry
 
         $this->routes[$routeKey][] = $middleware;
 
-        $this->logger->debug("Registered route middleware", [
-            'method' => $method,
-            'path' => $path
-        ]);
-
         return $this;
     }
 
@@ -570,10 +565,6 @@ class MiddlewareRegistry
 
         // Cache the result
         $this->methodCache[$methodKey] = $combinedMiddleware;
-
-        $this->logger->debug("Resolved middleware for {$methodKey}", [
-            'count' => count($combinedMiddleware)
-        ]);
 
         return $combinedMiddleware;
     }

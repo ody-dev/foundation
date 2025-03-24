@@ -2,13 +2,14 @@
 
 namespace Ody\Foundation\Router;
 
+use FastRoute\DataGenerator\GroupCountBased as DataGenerator;
 use FastRoute\Dispatcher;
+use FastRoute\Dispatcher\GroupCountBased as GroupCountBasedDispatcher;
 use FastRoute\RouteCollector;
+use FastRoute\RouteParser\Std as RouteParser;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Http\ControllerPool;
-use Ody\Foundation\Middleware;
-use Ody\Foundation\Middleware\MiddlewarePipeline;
 use Ody\Foundation\MiddlewareManager;
 use function FastRoute\simpleDispatcher;
 
@@ -179,12 +180,10 @@ class Router
         // Normalize the path
         $path = $this->normalizePath($path);
 
-        logger()->debug("Router::match() {$method} {$path}");
-
         // Create dispatcher only if needed and not already registered
         if ($this->dispatcher === null) {
             logger()->debug("Router: dispatcher was null even though routes are registered");
-            $this->dispatcher = $this->createDispatcher();
+            $this->buildDispatcher();
         }
 
         $routeInfo = $this->dispatcher->dispatch($method, $path);
@@ -227,6 +226,31 @@ class Router
     }
 
     /**
+     * Build the route dispatcher
+     * This should be called after all routes are registered
+     * but before the application starts handling requests
+     *
+     * @return void
+     */
+    public function buildDispatcher(): void
+    {
+        if ($this->dispatcher === null) {
+            $this->dispatcher = $this->createDispatcher();
+        }
+    }
+
+    /**
+     * Mark routes as loaded and build the dispatcher
+     *
+     * @return void
+     */
+    public function markRoutesLoaded(): void
+    {
+        $this->routesLoaded = true;
+        $this->buildDispatcher();
+    }
+
+    /**
      * Extract controller class and method information from a handler
      *
      * @param mixed $originalHandler The original handler (string or callable)
@@ -264,34 +288,6 @@ class Router
     }
 
     /**
-     * Create a middleware pipeline
-     *
-     * @param array $middlewareStack
-     * @param callable $finalHandler
-     * @return MiddlewarePipeline
-     */
-    public function createMiddlewarePipeline(array $middlewareStack, callable $finalHandler): Middleware\MiddlewarePipeline
-    {
-        // Create a pipeline with the final handler
-        $pipeline = new Middleware\MiddlewarePipeline($finalHandler);
-
-        // Resolve and add each middleware to the pipeline
-        foreach ($middlewareStack as $middleware) {
-            try {
-                $instance = $this->middlewareManager->resolve($middleware);
-                $pipeline->add($instance);
-            } catch (\Throwable $e) {
-                logger()->error("Failed to resolve middleware", [
-                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-
-        return $pipeline;
-    }
-
-    /**
      * Create a route group with shared attributes
      *
      * @param array $attributes Group attributes (prefix, middleware)
@@ -308,11 +304,9 @@ class Router
             $prefix = '/' . $prefix;
         }
 
-        // Create a route group
-        $groupRouter = new RouteGroup($this, $prefix, $middleware);
-
-        // Call the callback with the group router
-        $callback($groupRouter);
+        $callback(
+            new RouteGroup($this, $prefix, $middleware)
+        );
 
         return $this;
     }
@@ -324,7 +318,6 @@ class Router
      */
     private function createDispatcher(): Dispatcher
     {
-        logger()->debug("Router::createDispatcher()");
         return simpleDispatcher(function (RouteCollector $r) {
             foreach ($this->routes as $route) {
                 $method = $route[0];
@@ -346,7 +339,7 @@ class Router
     private function resolveController($handler)
     {
         // Only process string handlers in Controller@method format
-        if (is_string($handler) && strpos($handler, '@') !== false) {
+        if (is_string($handler) && str_contains($handler, '@')) {
             // Cache resolved handlers
             static $resolvedHandlers = [];
 
@@ -436,42 +429,52 @@ class Router
     }
 
     /**
-     * Return the count of registered routes
+     * Cache the compiled route dispatcher data
      *
-     * @return int
+     * @param string $cacheFile File path to store the cached data
+     * @return bool Whether caching was successful
      */
-    public function countRoutes(): int
+    public function cacheRoutes(string $cacheFile): bool
     {
-        return count($this->routes);
+        $routeCollector = new RouteCollector(new RouteParser(), new DataGenerator());
+
+        foreach ($this->routes as $route) {
+            $method = $route[0];
+            $path = $route[1];
+            $handler = $route[2];
+
+            $routeCollector->addRoute($method, $path, $handler);
+        }
+
+        $dispatchData = $routeCollector->getData();
+
+        $cacheContent = '<?php return ' . var_export($dispatchData, true) . ';';
+
+        $result = file_put_contents($cacheFile, $cacheContent);
+
+        return $result !== false;
     }
 
     /**
-     * Get the middleware manager
+     * Load cached route dispatcher data
      *
-     * @return MiddlewareManager
+     * @param string $cacheFile File path to the cached data
+     * @return bool Whether loading was successful
      */
-    public function getMiddlewareManager(): MiddlewareManager
+    public function loadCachedRoutes(string $cacheFile): bool
     {
-        return $this->middlewareManager;
-    }
+        if (!file_exists($cacheFile)) {
+            return false;
+        }
 
-    /**
-     * Mark routes as loaded
-     *
-     * @return void
-     */
-    public function markRoutesLoaded(): void
-    {
-        $this->routesLoaded = true;
-    }
+        $dispatchData = require $cacheFile;
 
-    /**
-     * Check if routes are loaded
-     *
-     * @return bool
-     */
-    public function isRoutesLoaded(): bool
-    {
-        return $this->routesLoaded;
+        if (!is_array($dispatchData)) {
+            return false;
+        }
+
+        $this->dispatcher = new GroupCountBasedDispatcher($dispatchData);
+
+        return true;
     }
 }

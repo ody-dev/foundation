@@ -152,11 +152,6 @@ class MiddlewareManager
         // Get middleware stack
         $stack = $this->getMiddlewareForRoute($method, $path, $controller, $action);
 
-        $this->logger->debug('MiddlewareManager: terminate()', [
-            'count' => count($stack),
-            'has_controller' => !empty($controller)
-        ]);
-
         // Process all middleware for termination
         foreach ($stack as $middleware) {
             try {

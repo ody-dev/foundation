@@ -98,6 +98,9 @@ class RouteService
             // Load module routes
             $this->loadModuleRoutes();
 
+            // Mark routes as loaded and build dispatcher
+            $this->router->markRoutesLoaded();
+
             $this->routesLoaded = true;
         } catch (\Throwable $e) {
             $this->logger->error("Error loading routes: {$e->getMessage()}", [
