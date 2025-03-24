@@ -10,8 +10,6 @@
 namespace Ody\Foundation;
 
 use Ody\Foundation\Http\RequestCallback;
-use Ody\Foundation\Http\RequestResponsePool;
-use Ody\Foundation\Http\Stream;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
@@ -62,22 +60,8 @@ class HttpServer
         Coroutine::create(function() use ($request, $response) {
             static::setContext($request);
 
-            // Track resources to clean up
-            $resources = [];
-
-            try {
-                $callback = new RequestCallback(static::$app);
-                $callback->handle($request, $response);
-            } finally {
-                // Clean up resources when request is done
-                foreach ($resources as $resource) {
-                    if ($resource instanceof Stream) {
-                        RequestResponsePool::releaseStream($resource);
-                    } elseif (is_resource($resource)) {
-                        @fclose($resource);
-                    }
-                }
-            }
+            $callback = new RequestCallback(static::$app);
+            $callback->handle($request, $response);
         });
     }
 
