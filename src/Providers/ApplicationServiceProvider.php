@@ -3,8 +3,6 @@ namespace Ody\Foundation\Providers;
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Ody\Foundation\Application;
-use Ody\Foundation\Http\ControllerCache;
-use Ody\Foundation\Http\ControllerDependencyCache;
 use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router\Router;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -72,17 +70,6 @@ class ApplicationServiceProvider extends ServiceProvider
             // Return the Application with correct constructor parameters
             return new Application($container, $providerManager);
         });
-
-        $this->container->singleton(ControllerCache::class, function () {
-            return new ControllerCache();
-        });
-
-        // Register the dependency cache as a singleton
-        $this->container->singleton(ControllerDependencyCache::class, function () {
-            return new ControllerDependencyCache();
-        });
-
-//        ControllerCache::init();
     }
 
     /**
@@ -92,14 +79,5 @@ class ApplicationServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Application bootstrapping logic
-        ControllerDependencyCache::init();
-        $cache = $this->container->make(ControllerDependencyCache::class);
-
-        // Pre-cache common controllers if desired
-        $controllers = config('app.common_controllers', []);
-        foreach ($controllers as $controller) {
-            $cache->analyze($controller);
-        }
     }
 }
