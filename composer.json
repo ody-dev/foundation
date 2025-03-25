@@ -19,7 +19,7 @@
     "psr/http-server-middleware": "^1.0.2",
     "psr/http-server-handler": "^1.0.2",
     "psr/cache": "^1.0|^2.0|^3.0",
-    "psr/simple-cache": "^1.0|^2.0|^3.0",
+    "psr/simple-cache": "^1.0.1",
     "nyholm/psr7": "^1.8",
     "nyholm/psr7-server": "^1.1.0",
     "vlucas/phpdotenv": "^5.6",
