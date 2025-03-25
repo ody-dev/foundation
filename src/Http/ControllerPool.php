@@ -10,6 +10,7 @@
 namespace Ody\Foundation\Http;
 
 use Ody\Container\Container;
+use Ody\Container\Contracts\BindingResolutionException;
 use Psr\Log\LoggerInterface;
 use ReflectionClass;
 use ReflectionException;
@@ -57,24 +58,17 @@ class ControllerPool
      */
     public static function get(string $class, Container $container): object
     {
-        // Track for debugging/metrics
-//        ContextManager::append('request.controllers', $class);
-
-        // Check if we should get from cache
         if (!self::shouldCache($class)) {
             return self::createInstance($class, $container);
         }
 
-        // Get from instance cache if available
         if (isset(self::$instances[$class])) {
             logger()->debug("ControllerPool: Using cached instance of {$class}");
             return self::$instances[$class];
         }
 
-        // Create new instance
         $instance = self::createInstance($class, $container);
 
-        // Cache the instance
         self::$instances[$class] = $instance;
 
         return $instance;
@@ -97,16 +91,13 @@ class ControllerPool
      * @param string $class
      * @param Container $container
      * @return object
-     * @throws ReflectionException
+     * @throws ReflectionException|BindingResolutionException
      */
     private static function createInstance(string $class, Container $container): object
     {
-        // Get dependency info from cache or analyze
         $dependencies = self::getDependencyInfo($class);
 
-        // No dependencies, create directly
         if (empty($dependencies)) {
-            logger()->debug("{$class} has no constructor or no parameters");
             return new $class();
         }
 
@@ -217,7 +208,6 @@ class ControllerPool
 
     /**
      * Clear all cached instances and dependency information
-     * Useful for testing or when memory needs to be reclaimed
      *
      * @return void
      */

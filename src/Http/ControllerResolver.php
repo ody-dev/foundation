@@ -38,11 +38,6 @@ class ControllerResolver
     protected LoggerInterface $logger;
 
     /**
-     * @var array
-     */
-    private array $resolvedControllers = [];
-
-    /**
      * Constructor
      *
      * @param Container $container

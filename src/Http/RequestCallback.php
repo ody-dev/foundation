@@ -20,15 +20,32 @@ use Swoole\Http\Response;
 
 final class RequestCallback
 {
+
+    /**
+     * @var RequestHandlerInterface|Application
+     */
     private RequestHandlerInterface $handler;
+
+    /**
+     * @var RequestCallbackOptions
+     */
     private RequestCallbackOptions $options;
 
+    /**
+     * @param Application $handler
+     * @param RequestCallbackOptions|null $options
+     */
     public function __construct(Application $handler, ?RequestCallbackOptions $options = null)
     {
         $this->handler = $handler;
         $this->options = $options ?? new RequestCallbackOptions();
     }
 
+    /**
+     * @param Request $request
+     * @param Response $response
+     * @return void
+     */
     public function handle(Request $request, Response $response): void
     {
         // Get the request ID from context if available
