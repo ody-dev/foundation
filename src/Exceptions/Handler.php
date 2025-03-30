@@ -17,11 +17,11 @@
 
 namespace Ody\Foundation\Exceptions;
 
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
-use Nyholm\Psr7\Factory\Psr17Factory;
 
 class Handler
 {
@@ -64,7 +64,7 @@ class Handler
     public function report(Throwable $e): void
     {
         $context = [
-            'exception' => get_class($e),
+            'exception' => $e,
             'file' => $e->getFile(),
             'line' => $e->getLine(),
             'trace' => $e->getTraceAsString()
@@ -95,11 +95,7 @@ class Handler
         // Default rendering based on request format
         $format = $this->getRequestFormat($request);
 
-        if ($format === 'json') {
-            return $this->renderJsonResponse($request, $e);
-        }
-
-        return $this->renderHtmlResponse($request, $e);
+        return $this->renderJsonResponse($request, $e);
     }
 
     /**
@@ -127,29 +123,21 @@ class Handler
             $factory = new Psr17Factory();
             $response = $factory->createResponse($e->getStatusCode());
 
-            if ($this->getRequestFormat($request) === 'json') {
-                $data = [
-                    'error' => [
-                        'status' => $e->getStatusCode(),
-                        'title' => $e->getTitle(),
-                        'message' => $e->getMessage()
-                    ]
-                ];
+            $data = [
+                'error' => [
+                    'status' => $e->getStatusCode(),
+                    'title' => $e->getTitle(),
+                    'message' => $e->getMessage()
+                ]
+            ];
 
-                if ($debug) {
-                    $data['error']['file'] = $e->getFile();
-                    $data['error']['line'] = $e->getLine();
-                }
-
-                $response = $response->withHeader('Content-Type', 'application/json');
-                $body = $factory->createStream(json_encode($data));
-                return $response->withBody($body);
+            if ($debug) {
+                $data['error']['file'] = $e->getFile();
+                $data['error']['line'] = $e->getLine();
             }
 
-            // Html response
-            $content = $this->renderExceptionHtml($e, $debug);
-            $response = $response->withHeader('Content-Type', 'text/html');
-            $body = $factory->createStream($content);
+            $response = $response->withHeader('Content-Type', 'application/json');
+            $body = $factory->createStream(json_encode($data));
             return $response->withBody($body);
         });
 
@@ -186,138 +174,61 @@ class Handler
         $statusCode = $this->getStatusCode($e);
         $response = $factory->createResponse($statusCode);
 
-        $data = [
-            'error' => [
-                'status' => $statusCode,
-                'message' => $this->debug ? $e->getMessage() : 'Server Error'
-            ]
+        // Example using RFC 7807 structure
+        $problem = [
+//            'type'   => $this->getTypeUri($e), // A URI identifying the problem type (optional)
+            'title' => $this->getTitleForException($e), // Short, human-readable summary
+            'status' => $statusCode,
+            'detail' => $e->getMessage(), // Human-readable explanation
+            'instance' => (string)$request->getUri(), // URI that identifies the specific occurrence (optional)
         ];
 
+        // Add more details in debug mode
         if ($this->debug) {
-            $data['error']['exception'] = get_class($e);
-            $data['error']['file'] = $e->getFile();
-            $data['error']['line'] = $e->getLine();
-            $data['error']['trace'] = explode("\n", $e->getTraceAsString());
+            $problem['debug'] = [
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => explode("\n", $e->getTraceAsString()),
+            ];
         }
 
-        $response = $response->withHeader('Content-Type', 'application/json');
-        $body = $factory->createStream(json_encode($data, JSON_PRETTY_PRINT));
+        // Add specific error details (e.g., for validation)
+        if ($e instanceof ValidationException) {
+            $problem['errors'] = $e->getErrors(); // Add validation-specific errors
+        }
+        // Add more specific details for other custom exception types here...
+
+        $response = $response->withHeader('Content-Type', 'application/problem+json'); // Use standard content type
+        $body = $factory->createStream(json_encode($problem, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         return $response->withBody($body);
     }
 
     /**
-     * Render an HTML response for an exception
-     *
-     * @param ServerRequestInterface $request
-     * @param Throwable $e
-     * @return ResponseInterface
-     */
-    protected function renderHtmlResponse(ServerRequestInterface $request, Throwable $e): ResponseInterface
-    {
-        $factory = new Psr17Factory();
-        $statusCode = $this->getStatusCode($e);
-        $response = $factory->createResponse($statusCode);
-
-        $content = $this->renderExceptionHtml($e, $this->debug);
-
-        $response = $response->withHeader('Content-Type', 'text/html');
-        $body = $factory->createStream($content);
-        return $response->withBody($body);
-    }
-
-    /**
-     * Render an exception as HTML
+     * Helper to get a URI for the problem type
      *
      * @param Throwable $e
-     * @param bool $debug
      * @return string
      */
-    protected function renderExceptionHtml(Throwable $e, bool $debug): string
+    protected function getTypeUri(Throwable $e): string
     {
-        $statusCode = $this->getStatusCode($e);
-        $title = $statusCode . ' | ' . $this->getStatusText($statusCode);
+        // You might map exception classes to specific documentation URLs
+        return 'about:blank'; // Default
+    }
 
-        if (!$debug) {
-            // Simple error page for production
-            return '<!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>' . $title . '</title>
-                    <style>
-                        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; padding: 2rem; max-width: 40rem; margin: 0 auto; color: #333; }
-                        h1 { margin-top: 0; font-size: 1.5rem; }
-                        .container { padding: 2rem; border-radius: 4px; background: #f8f9fa; border: 1px solid #dee2e6; }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>' . $title . '</h1>
-                        <p>The server encountered an error and could not complete your request.</p>
-                    </div>
-                </body>
-                </html>';
+    /**
+     * Helper to get a concise title
+     *
+     * @param Throwable $e
+     * @return string
+     */
+    protected function getTitleForException(Throwable $e): string
+    {
+        if (method_exists($e, 'getTitle')) {
+            return $e->getTitle();
         }
-
-        // Detailed error page for development
-        $html = '<!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>' . $title . '</title>
-                <style>
-                    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; padding: 1rem; color: #333; margin: 0; }
-                    h1 { margin-top: 0; font-size: 1.5rem; }
-                    .container { max-width: 90%; margin: 0 auto; }
-                    .error-header { padding: 1rem; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 1rem; }
-                    .stack-trace { background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; border: 1px solid #dee2e6; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap; }
-                    .frame { padding: 0.5rem; border-bottom: 1px solid #dee2e6; }
-                    .frame:last-child { border-bottom: none; }
-                    .frame-file { color: #6c757d; }
-                    .frame-line { color: #dc3545; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="error-header">
-                        <h1>' . htmlspecialchars($title) . '</h1>
-                        <p><strong>' . htmlspecialchars(get_class($e)) . '</strong>: ' . htmlspecialchars($e->getMessage()) . '</p>
-                        <p><strong>File</strong>: ' . htmlspecialchars($e->getFile()) . ':' . $e->getLine() . '</p>
-                    </div>
-                    <div class="stack-trace">';
-
-        // Format stack trace
-        $trace = $e->getTrace();
-        foreach ($trace as $i => $frame) {
-            $file = $frame['file'] ?? '[internal function]';
-            $line = $frame['line'] ?? '';
-            $class = $frame['class'] ?? '';
-            $type = $frame['type'] ?? '';
-            $function = $frame['function'] ?? '';
-
-            $html .= '<div class="frame">';
-            $html .= '<span class="frame-index">' . $i . '.</span> ';
-            if ($class) {
-                $html .= htmlspecialchars($class . $type . $function) . '()';
-            } else {
-                $html .= htmlspecialchars($function) . '()';
-            }
-            $html .= '<div class="frame-file">' . htmlspecialchars($file);
-            if ($line) {
-                $html .= ':<span class="frame-line">' . $line . '</span>';
-            }
-            $html .= '</div>';
-            $html .= '</div>';
-        }
-
-        $html .= '</div>
-                </div>
-            </body>
-            </html>';
-
-        return $html;
+        // Fallback based on status code or exception type
+        return $this->getStatusText($this->getStatusCode($e));
     }
 
     /**

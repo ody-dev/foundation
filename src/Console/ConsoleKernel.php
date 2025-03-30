@@ -18,6 +18,7 @@
 namespace Ody\Foundation\Console;
 
 use Ody\Container\Container;
+use Ody\Foundation\Exceptions\Handler;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Application as ConsoleApplication;
 use Symfony\Component\Console\Input\InputInterface;
@@ -83,14 +84,26 @@ class ConsoleKernel
         try {
             return $this->console->run($input, $output);
         } catch (\Throwable $e) {
-            // Show the error in the console
+            // Report the exception using the central handler
+            if ($this->container->has(Handler::class)) {
+                $this->container->make(Handler::class)->report($e);
+            }
+
+            // Existing console output for the error
             if ($output) {
-                $output->writeln('<error>Error: ' . $e->getMessage() . '</error>');
+                // Use SymfonyStyle for better formatting if available
+                $io = new \Symfony\Component\Console\Style\SymfonyStyle($input ?? new \Symfony\Component\Console\Input\ArgvInput(), $output);
+                $io->error('Error: ' . $e->getMessage());
+                if ($output->isVerbose()) {
+                    $io->writeln('<comment>Exception:</comment> ' . get_class($e));
+                    $io->writeln('<comment>File:</comment> ' . $e->getFile() . ':' . $e->getLine());
+                    // Maybe output trace in very verbose mode -vvv
+                }
             } else {
                 echo "Error: " . $e->getMessage() . PHP_EOL;
             }
 
-            return 1;
+            return 1; // Indicate failure
         }
     }
 }
