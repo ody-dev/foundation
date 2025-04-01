@@ -59,11 +59,6 @@ class RouteServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Only bootstrap in HTTP context (skip for console)
-        if ($this->isRunningInConsole()) {
-            return;
-        }
-
         // Load all application routes
         $this->container->make('route.service')->bootRoutes();
     }

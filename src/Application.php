@@ -182,14 +182,19 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             return $this;
         }
 
-        // Load core service providers
-        $this->registerCoreProviders();
-
         // Register providers from configuration
-        $this->providerManager->registerConfigProviders('app.providers');
+        if (!$this->container->get('container.bootstrapped')) {
+            // Load core service providers
+            $this->registerCoreProviders();
 
-        // Boot all registered providers
-        $this->providerManager->boot();
+            error_log('container contains no registrations');
+            $this->providerManager->registerConfigProviders('app.providers');
+
+            // Boot all registered providers
+            $this->providerManager->boot();
+        }
+
+
 
         // Configure controller caching
         $this->configureControllerCaching();

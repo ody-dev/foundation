@@ -177,10 +177,6 @@ abstract class ServiceProvider
      */
     protected function loadRoutesFrom(string $path, array $attributes = []): void
     {
-        if ($this->isRunningInConsole()) {
-            return;
-        }
-
         if (!file_exists($path)) {
             return;
         }
@@ -206,10 +202,6 @@ abstract class ServiceProvider
      */
     protected function loadRoutes(string $path, array $attributes = []): void
     {
-        if ($this->isRunningInConsole()) {
-            return;
-        }
-
         // Check if the RouteServiceProvider is registered
         if ($this->container->has(RouteServiceProvider::class)) {
             // Use the provider's method if available

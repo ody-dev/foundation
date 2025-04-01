@@ -81,6 +81,8 @@ class ConsoleBootstrapper
         // Register core providers
         self::registerServiceProviders($providerManager);
 
+        $container->instance('container.bootstrapped', true);
+
         return $container;
     }
 

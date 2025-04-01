@@ -36,11 +36,9 @@ class HttpServer
      * @throws ContainerExceptionInterface
      * @throws NotFoundExceptionInterface
      */
-    public static function start(SwServer $server): void
+    public static function start(SwServer $server, Application $app = null): void
     {
-        // static::$app = // App
-        if (self::$app === null) {
-            // Get existing application instance
+        if (self::$app === null && $app === null) {
             self::$app = Bootstrap::init();
 
             // Ensure the application is bootstrapped
@@ -50,10 +48,9 @@ class HttpServer
 
             logger()->debug("HttpServer::start() initialized application");
         } else {
+            self::$app = $app->bootstrap();
             logger()->debug("HttpServer::start() using existing application instance");
         }
-
-        // static::$app->bind(SwServer::class, $server); // Bind server instance to container
 
         $server->start();
     }

@@ -14,9 +14,6 @@ namespace Ody\Foundation;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Providers\ServiceProviderManager;
-use Ody\Foundation\Router\Router;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * Application Bootstrap
@@ -70,9 +67,6 @@ class Bootstrap
             // Determine if we're running in console mode
             $container->instance('runningInConsole', false);
 
-            // Register early classes needed for successful application instantiation
-            self::registerEarlyClasses($container, $providerManager);
-
             // Create application but don't bootstrap it yet
             $application = self::createApplication($container, $providerManager);
 
@@ -122,42 +116,6 @@ class Bootstrap
         Container::setInstance($container);
 
         return $container;
-    }
-
-    /**
-     * @deprecated method was used during development to bypass a bug.
-     *
-     * Register essential classes needed before full application bootstrap
-     *
-     * @param Container $container
-     * @param ServiceProviderManager $providerManager
-     * @return void
-     */
-    private static function registerEarlyClasses(Container $container, ServiceProviderManager $providerManager): void
-    {
-        // Register a temporary logger until the logging provider is initialized
-//        $container->singleton(LoggerInterface::class, function() {
-//            return new NullLogger();
-//        });
-
-        // Register Router with singleton lifecycle
-//        $container->singleton(Router::class, function ($container) {
-//            return new Router(
-//                $container,
-//                $container->has(MiddlewareManager::class) ? $container->make(MiddlewareManager::class) : null
-//            );
-//        });
-
-        // Alias for convenient service location
-//        $container->alias(Router::class, 'router');
-
-        // MiddlewareManager registration
-//        $container->singleton(MiddlewareManager::class, function ($container) {
-//            return new MiddlewareManager($container);
-//        });
-//        $container->alias(MiddlewareManager::class, 'middleware.manager');
-
-        // RouteGroup requires no registration
     }
 
     /**
