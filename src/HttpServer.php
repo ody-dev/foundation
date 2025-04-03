@@ -1,13 +1,5 @@
 <?php
 /*
- *  This file is part of ODY framework.
- *
- *  @link     https://ody.dev
- *  @document https://ody.dev/docs
- *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
- */
-
-/*
  * This file is part of ODY framework
  *
  * @link https://ody.dev
@@ -18,6 +10,7 @@
 namespace Ody\Foundation;
 
 use Ody\Foundation\Http\RequestCallback;
+use Ody\Server\State\HttpServerState;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
@@ -28,7 +21,9 @@ use Swoole\Http\Server as SwServer;
 
 class HttpServer
 {
-    private static ?Application $app = null;
+    private static ?Application $workerApp;
+
+    private static array $workerApplicationMap = [];
 
     /**
      * @param SwServer $server
@@ -36,22 +31,8 @@ class HttpServer
      * @throws ContainerExceptionInterface
      * @throws NotFoundExceptionInterface
      */
-    public static function start(SwServer $server, Application $app = null): void
+    public static function start(SwServer $server): void
     {
-        if (self::$app === null && $app === null) {
-            self::$app = Bootstrap::init();
-
-            // Ensure the application is bootstrapped
-            if (!self::$app->isBootstrapped()) {
-                self::$app->bootstrap();
-            }
-
-            logger()->debug("HttpServer::start() initialized application");
-        } else {
-            self::$app = $app->bootstrap();
-            logger()->debug("HttpServer::start() using existing application instance");
-        }
-
         $server->start();
     }
 
@@ -62,12 +43,79 @@ class HttpServer
      */
     public static function onRequest(SwRequest $request, SwResponse $response): void
     {
-        Coroutine::create(function() use ($request, $response) {
+        $workerPid = getmypid();
+        $app = self::$workerApplicationMap[$workerPid];
+        $appIsNull = is_null($app);
+        logger()->debug("Worker {$workerPid} handling request. App is null: " . ($appIsNull ? 'YES' : 'NO')); // Log state
+
+        Coroutine::create(function () use ($request, $response, $app) {
             static::setContext($request);
 
-            $callback = new RequestCallback(static::$app);
+            $callback = new RequestCallback($app);
             $callback->handle($request, $response);
         });
+    }
+
+    /**
+     * @param SwServer $server
+     * @param int $workerId
+     * @return void
+     */
+    public static function onWorkerStart(SwServer $server, int $workerId): void
+    {
+        $workerPid = getmypid();
+        logger()->debug('worker start: ' . $workerId);
+        logger()->debug('initializing application');
+        $app = Bootstrap::init();
+        $app = $app->bootstrap();
+
+        static::$workerApplicationMap[$workerPid] = $app;
+
+        logger()->debug("Worker {$workerPid} initialized and bootstrapped its own Application instance.");
+
+        // Save worker ids to serverState.json
+        if ($workerPid == config('server.additional.worker_num') - 1) {
+            $workerIds = [];
+            for ($i = 0; $i < config('server.additional.worker_num'); $i++) {
+                $workerIds[$i] = $server->getWorkerPid($i);
+            }
+
+            $serveState = HttpServerState::getInstance();
+            $serveState->setMasterProcessId($server->getMasterPid());
+            $serveState->setManagerProcessId($server->getManagerPid());
+            $serveState->setWorkerProcessIds($workerIds);
+        }
+    }
+
+    public static function onWorkerError(SwServer $server, int $workerId)
+    {
+        $workerPid = getmypid();
+        logger()->debug('Worker error: ' . $workerPid);
+    }
+
+    /**
+     * Cleanup when a worker stops.
+     *
+     * @param SwServer $server
+     * @param int $workerId
+     * @return void
+     */
+    public static function onWorkerStop(SwServer $server, int $workerId): void
+    {
+        $workerPid = getmypid();
+        logger()->debug("Worker {$workerId} (PID: {$workerPid}) stopping. Cleaning up container map entry.");
+
+        // Remove the container entry for this specific worker from the map
+        if (isset(self::$workerApplicationMap[$workerPid])) {
+            // Explicitly unset properties or call destructors if necessary
+            // $container = self::$workerContainerMap[$workerPid];
+            // $container->callDestructorsOrCleanup();
+
+            unset(self::$workerApplicationMap[$workerPid]);
+            logger()->debug("Removed container map entry for PID: {$workerPid}");
+        } else {
+            logger()->warning("Could not find container map entry for PID {$workerPid} during stop.");
+        }
     }
 
     /**

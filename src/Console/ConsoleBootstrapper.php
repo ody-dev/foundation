@@ -26,6 +26,7 @@ use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
 use Ody\Foundation\Publishing\Publisher;
 use Ody\Logger\NullLogger;
+use Ody\Server\Providers\ServerServiceProvider;
 use Ody\Support\Config;
 use Symfony\Component\Console\Application as ConsoleApplication;
 
@@ -126,6 +127,7 @@ class ConsoleBootstrapper
             ConfigServiceProvider::class,
             LoggingServiceProvider::class, // This must be fully registered and booted first
             ConsoleServiceProvider::class, // This depends on logger
+            ServerServiceProvider::class
         ];
 
         array_walk($coreProviders, function ($provider) use ($providerManager) {
@@ -134,15 +136,13 @@ class ConsoleBootstrapper
 
         // Get container and check if config is available
         $container = $providerManager->getContainer();
-        if ($container->has(Config::class)) {
-            $config = $container->make(Config::class);
-            $providers = $config->get('app.providers', []);
+        $config = $container->make(Config::class);
+        $providers = $config->get('app.providers.beforeServerStart', []);
 
-            // Register all providers from config
-            array_walk($providers, function ($provider) use ($providerManager) {
-                $providerManager->register($provider);
-            });
-        }
+        // Register all providers from config
+        array_walk($providers, function ($provider) use ($providerManager) {
+            $providerManager->register($provider);
+        });
 
         // Boot all registered providers
         $providerManager->boot();

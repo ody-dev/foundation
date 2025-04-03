@@ -1,101 +1,121 @@
 <?php
 
-
 return [
     'name' => env('APP_NAME', 'Ody API'),
     'env' => env('APP_ENV', 'production'),
     'debug' => (bool)env('APP_DEBUG', false),
     'url' => env('APP_URL', 'http://localhost'),
     'timezone' => env('APP_TIMEZONE', 'UTC'),
-
     'providers' => [
-        Ody\Foundation\Providers\ErrorServiceProvider::class,
+        /**
+         * | --- HTTP Worker Providers ---
+         * | Service Providers listed here are registered and booted within each
+         * | individual Swoole HTTP worker process when it starts (triggered by `onWorkerStart`).
+         * |
+         * | Purpose: Configure the application instance within each worker specifically
+         * | for handling incoming HTTP requests. This is where you should register
+         * | providers responsible for:
+         * |   - Routing & Controller Resolution (\Ody\Foundation\Providers\RouteServiceProvider)
+         * |   - HTTP Middleware Pipeline (\Ody\Foundation\Providers\MiddlewareServiceProvider)
+         * |   - Request/Response Services & Exception Handling (\Ody\Foundation\Providers\ErrorServiceProvider)
+         * |   - Database/ORM access needed during web requests (\Ody\DB\Providers\DatabaseServiceProvider, ...)
+         * |   - Authentication & Authorization for requests (\Ody\Auth\Providers\AuthServiceProvider)
+         * |   - Caching, Sessions, etc. used by HTTP requests (\Ody\Foundation\Providers\CacheServiceProvider)
+         * |   - Your main application services triggered by controllers (\App\Providers\AppServiceProvider).
+         * |
+         * | Context & Isolation: Each worker initializes these providers using its own
+         * | separate container instance, ensuring isolation between workers. If a provider
+         * | (like Database) is needed by both HTTP workers AND background processes,
+         * | it must also be listed in 'beforeServerStart' to be initialized there too.
+         */
+        'http' => [
+            // Core providers
+            \Ody\Foundation\Providers\FacadeServiceProvider::class,
+            \Ody\Foundation\Providers\MiddlewareServiceProvider::class,
+            \Ody\Foundation\Providers\RouteServiceProvider::class,
+            \Ody\Foundation\Providers\ErrorServiceProvider::class,
+            \Ody\Foundation\Providers\CacheServiceProvider::class,
 
-        // Add your application service providers here
-        // App\Providers\CustomServiceProvider::class,
+            // Package providers
+            \Ody\DB\Providers\DatabaseServiceProvider::class,
+
+            // Add your application service providers here
+            \App\Providers\AppServiceProvider::class,
+        ],
+
+        /**
+         * | --- Pre-Server Start Providers ---
+         * | Service Providers listed here are registered and booted *once* in the main
+         * | process when the `server:start` command executes, BEFORE the Swoole HTTP
+         * | server begins listening for requests.
+         * |
+         * | Purpose: Use this section for providers that need to:
+         * |   1. Initialize services required by long-running background tasks or
+         * |      custom Swoole processes (e.g., Database/Eloquent for queue consumers,
+         * |      ProcessManager for forking).
+         * |   2. Start/fork those background processes themselves (e.g., AMQP consumers).
+         * |   3. Perform other one-time setup actions during server initialization.
+         * |
+         * | Context & Isolation: Services booted here operate in the initial command's
+         * | process context. This context is separate from the HTTP worker processes
+         * | that handle web requests (which use providers from the 'http' array).
+         * |
+         * | Important: If a service (like Database) is needed by *both* background
+         * | processes AND HTTP requests, its provider MUST be listed here *and* in the
+         * | 'http' array to ensure it's correctly initialized in each distinct context.
+         */
+        'beforeServerStart' => []
+
     ],
-
     'aliases' => [
-        'App' => Ody\Foundation\Application::class,
+        'App' => \Ody\Foundation\Application::class,
         'Config' => \Ody\Support\Config::class,
         'Env' => \Ody\Support\Env::class,
         'Router' => \Ody\Foundation\Router\Router::class,
-        'Request' => Ody\Foundation\Http\Request::class,
-        'Response' => Ody\Foundation\Http\Response::class,
+        'Request' => \Ody\Foundation\Http\Request::class,
+        'Response' => \Ody\Foundation\Http\Response::class,
     ],
-
     'routes' => [
         'path' => env('ROUTES_PATH', base_path('routes')),
     ],
-
     'middleware' => [
-        // Global middleware applied to all routes
         'global' => [
-            Ody\Foundation\Middleware\ErrorHandlerMiddleware::class,
-            Ody\Foundation\Middleware\CorsMiddleware::class,
-            Ody\Foundation\Middleware\JsonBodyParserMiddleware::class,
-            Ody\Foundation\Middleware\LoggingMiddleware::class,
+            \Ody\Foundation\Middleware\ErrorHandlerMiddleware::class,
+            \Ody\Foundation\Middleware\CorsMiddleware::class,
+            \Ody\Foundation\Middleware\JsonBodyParserMiddleware::class,
         ],
-
-        // Named middleware that can be referenced in routes
         'named' => [
-            // Authentication middleware with different guards
-            'auth' => Ody\Foundation\Middleware\AuthMiddleware::class,
-            'auth:api' => \Ody\Auth\Middleware\AuthMiddleware::class,
-            'auth:jwt' => Ody\Foundation\Middleware\AuthMiddleware::class,
-            'auth:session' => Ody\Foundation\Middleware\AuthMiddleware::class,
-
-            // Role-based access control
-            'role' => Ody\Foundation\Middleware\RoleMiddleware::class,
-            'role:admin' => Ody\Foundation\Middleware\RoleMiddleware::class,
-            'role:user' => Ody\Foundation\Middleware\RoleMiddleware::class,
-            'role:guest' => Ody\Foundation\Middleware\RoleMiddleware::class,
-
-            // Rate limiting
-            'throttle' => Ody\Foundation\Middleware\ThrottleMiddleware::class,
-            'throttle:60,1' => Ody\Foundation\Middleware\ThrottleMiddleware::class,  // 60 requests per minute
-            'throttle:1000,60' => Ody\Foundation\Middleware\ThrottleMiddleware::class, // 1000 requests per hour
-
-            // Other middleware
-            'cors' => Ody\Foundation\Middleware\CorsMiddleware::class,
-            'json' => Ody\Foundation\Middleware\JsonBodyParserMiddleware::class,
-            'log' => Ody\Foundation\Middleware\LoggingMiddleware::class,
-
-            // Add your custom middleware here
-            // 'cache' => App\Http\Middleware\CacheMiddleware::class,
-            // 'csrf' => App\Http\Middleware\CsrfMiddleware::class,
+            'auth' => \Ody\Auth\Middleware\AuthMiddleware::class,
         ],
-
-        // Middleware groups for route groups
         'groups' => [
-            'web' => [
-                'auth',
-                'json',
-            ],
             'api' => [
-                'throttle:60,1',
-                'auth:api',
-                'json',
-            ],
-            'admin' => [
-                'auth',
-                'role:admin',
-                'json',
-            ],
-        ],
-
-        // Middleware resolver options
-        'resolvers' => [
-            // Add custom resolver classes here if needed
-            // 'custom' => App\Http\Middleware\Resolvers\CustomResolver::class,
-        ],
+                \Ody\Auth\Middleware\AuthMiddleware::class,
+                \Ody\Foundation\Middleware\ThrottleMiddleware::class,
+            ]
+        ]
     ],
-
     'cors' => [
         'origin' => env('CORS_ALLOW_ORIGIN', '*'),
         'methods' => env('CORS_ALLOW_METHODS', 'GET, POST, PUT, DELETE, OPTIONS'),
         'headers' => env('CORS_ALLOW_HEADERS', 'Content-Type, Authorization, X-Requested-With, X-API-Key'),
         'credentials' => env('CORS_ALLOW_CREDENTIALS', false),
         'max_age' => env('CORS_MAX_AGE', 86400), // 24 hours
+    ],
+
+    /**
+     * Controller caching configuration
+     *
+     * Controls the behavior of the framework's controller caching mechanism
+     * Enabling this gives a slight performance boost.
+     */
+    'controller_cache' => [
+        // Whether controller caching is enabled globally
+        'enabled' => true,
+
+        // Controllers that should be excluded from caching (helpful for controllers with serialization issues)
+        'excluded' => [
+            // Example: 'App\Http\Controllers\ComplexController',
+            // Example: 'App\Http\Controllers\ResourceIntensiveController',
+        ],
     ],
 ];

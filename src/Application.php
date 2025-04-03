@@ -182,17 +182,12 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             return $this;
         }
 
-        // Register providers from configuration
-        if (!$this->container->get('container.bootstrapped')) {
-            // Load core service providers
-            $this->registerCoreProviders();
+        // Load service providers
+        $this->registerCoreProviders();
+        $this->providerManager->registerConfigProviders('app.providers.http');
 
-            error_log('container contains no registrations');
-            $this->providerManager->registerConfigProviders('app.providers');
-
-            // Boot all registered providers
-            $this->providerManager->boot();
-        }
+        // Boot all registered providers
+        $this->providerManager->boot();
 
 
 
