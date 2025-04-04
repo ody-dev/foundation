@@ -9,15 +9,10 @@
 
 namespace Ody\Foundation\Router;
 
-use FastRoute\DataGenerator\GroupCountBased as DataGenerator;
 use FastRoute\Dispatcher;
-use FastRoute\Dispatcher\GroupCountBased as GroupCountBasedDispatcher;
 use FastRoute\RouteCollector;
-use FastRoute\RouteParser\Std as RouteParser;
-use Ody\Container\Container;
-use Ody\Container\Contracts\BindingResolutionException;
-use Ody\Foundation\Http\ControllerPool;
 use Ody\Foundation\MiddlewareManager;
+use Psr\Log\LoggerInterface;
 use function FastRoute\simpleDispatcher;
 
 //use function Ody\Foundation\gettype;
@@ -28,16 +23,6 @@ class Router
      * @var array
      */
     private array $routes = [];
-
-    /**
-     * @var Container
-     */
-    private Container $container;
-
-    /**
-     * @var MiddlewareManager
-     */
-    private MiddlewareManager $middlewareManager;
 
     /**
      * @var Dispatcher|null
@@ -52,22 +37,14 @@ class Router
     /**
      * Router constructor
      *
-     * @param Container|null $container
-     * @param MiddlewareManager|null $middlewareManager
+     * @param MiddlewareManager $middlewareManager
+     * @param LoggerInterface $logger
      */
     public function __construct(
-        ?Container $container = null,
-        ?MiddlewareManager $middlewareManager = null
-    ) {
-        $this->container = $container ?? new Container();
-
-        if ($middlewareManager) {
-            $this->middlewareManager = $middlewareManager;
-        } else if ($container && $container->has(MiddlewareManager::class)) {
-            $this->middlewareManager = $container->make(MiddlewareManager::class);
-        } else {
-            $this->middlewareManager = new MiddlewareManager($this->container);
-        }
+        private readonly MiddlewareManager $middlewareManager,
+        private readonly LoggerInterface   $logger
+    )
+    {
     }
 
     /**
@@ -165,7 +142,7 @@ class Router
         $this->dispatcher = null;
 
         // Log route registration
-        logger()->debug("Router: Registered {$method} route: {$path}");
+        $this->logger->debug("Router: Registered {$method} route: {$path}");
 
         return $route;
     }
@@ -184,12 +161,10 @@ class Router
      */
     public function match(string $method, string $path): array
     {
-        // Normalize the path
         $path = $this->normalizePath($path);
 
-        // Create dispatcher only if needed and not already registered
         if ($this->dispatcher === null) {
-            logger()->debug("Router: dispatcher was null even though routes are registered");
+            $this->logger->debug("Router: dispatcher was null, rebuilding.");
             $this->buildDispatcher();
         }
 
@@ -197,39 +172,39 @@ class Router
 
         switch ($routeInfo[0]) {
             case Dispatcher::NOT_FOUND:
-                // Debug info in development mode
-                if (env('APP_DEBUG', false)) {
-                    logger()->debug("Router: No route found for {$method} {$path}. Total routes: " . count($this->routes));
-                }
+                $this->logger->debug("Router: No route found for {$method} {$path}.");
                 return ['status' => 'not_found'];
 
             case Dispatcher::METHOD_NOT_ALLOWED:
+                $this->logger->debug("Router: Method not allowed for {$method} {$path}.");
                 return [
                     'status' => 'method_not_allowed',
                     'allowed_methods' => $routeInfo[1]
                 ];
 
             case Dispatcher::FOUND:
-                $handler = $routeInfo[1];
-                logger()->debug("Router: Route found for {$method} {$path}");
+                $handlerIdentifier = $routeInfo[1]; // This is the raw handler (string or closure)
+                $routeParams = $routeInfo[2];
+                $this->logger->debug("Router: Route found for {$method} {$path}");
 
-                // Try to convert string controller@method to callable
-                $callable = $this->resolveController($handler);
+                $controllerClass = null;
+                $action = null;
+                // Extract controller/action strings if it's a string handler
+                if (is_string($handlerIdentifier) && str_contains($handlerIdentifier, '@')) {
+                    list($controllerClass, $action) = explode('@', $handlerIdentifier, 2);
+                }
 
-                // Extract controller info for attribute middleware
-                $controllerInfo = $this->extractControllerInfo($handler, $callable);
-
+                // Return the identifier, not a resolved callable
                 return [
                     'status' => 'found',
-                    'handler' => $callable,
-                    'originalHandler' => $handler,
-                    'vars' => $routeInfo[2],
-                    'controller' => $controllerInfo['controller'] ?? null,
-                    'action' => $controllerInfo['action'] ?? null
+                    'handler' => $handlerIdentifier, // Return the string 'Controller@method' or closure
+                    'vars' => $routeParams,
+                    'controller' => $controllerClass, // Extracted class string
+                    'action' => $action // Extracted action string
                 ];
         }
-
-        return ['status' => 'error'];
+        $this->logger->error("Router: Dispatcher returned unexpected status: " . $routeInfo[0]);
+        return ['status' => 'error']; // Should not happen
     }
 
     /**
@@ -239,10 +214,11 @@ class Router
      *
      * @return void
      */
-    public function buildDispatcher(): void
+    public function buildDispatcher(): void // non-static
     {
         if ($this->dispatcher === null) {
             $this->dispatcher = $this->createDispatcher();
+            $this->logger->debug("Router: Dispatcher built.");
         }
     }
 
@@ -251,47 +227,13 @@ class Router
      *
      * @return void
      */
-    public function markRoutesLoaded(): void
+    public function markRoutesLoaded(): void // non-static
     {
-        $this->routesLoaded = true;
-        $this->buildDispatcher();
-    }
-
-    /**
-     * Extract controller class and method information from a handler
-     *
-     * @param mixed $originalHandler The original handler (string or callable)
-     * @param mixed $resolvedHandler The resolved callable handler
-     * @return array Controller info with 'controller' and 'action' keys
-     */
-    protected function extractControllerInfo($originalHandler, $resolvedHandler): array
-    {
-        $info = [
-            'controller' => null,
-            'action' => null
-        ];
-
-        // Case 1: String in 'Controller@method' format
-        if (is_string($originalHandler) && strpos($originalHandler, '@') !== false) {
-            list($controller, $method) = explode('@', $originalHandler, 2);
-            $info['controller'] = $controller;
-            $info['action'] = $method;
-            return $info;
+        if (!$this->routesLoaded) {
+            $this->routesLoaded = true;
+            $this->buildDispatcher();
+            $this->logger->debug("Router: Routes marked as loaded.");
         }
-
-        // Case 2: Already resolved array callable [ControllerInstance, 'method']
-        if (is_array($resolvedHandler) && count($resolvedHandler) === 2) {
-            $controller = $resolvedHandler[0];
-            $method = $resolvedHandler[1];
-
-            if (is_object($controller)) {
-                $info['controller'] = get_class($controller);
-                $info['action'] = $method;
-                return $info;
-            }
-        }
-
-        return $info;
     }
 
     /**
@@ -337,40 +279,6 @@ class Router
     }
 
     /**
-     * Convert string `controller@method` to callable
-     *
-     * @param string|callable $handler
-     * @return callable
-     * @throws BindingResolutionException
-     */
-    private function resolveController($handler)
-    {
-        // Only process string handlers in Controller@method format
-        if (is_string($handler) && str_contains($handler, '@')) {
-            // Cache resolved handlers
-            static $resolvedHandlers = [];
-
-            if (isset($resolvedHandlers[$handler])) {
-                return $resolvedHandlers[$handler];
-            }
-
-            list($class, $method) = explode('@', $handler, 2);
-
-            // Get controller from pool
-            $controller = ControllerPool::get($class, $this->container);
-            $callable = [$controller, $method];
-
-            // Cache the resolved handler
-            $resolvedHandlers[$handler] = $callable;
-
-            return $callable;
-        }
-
-        // If it's already a callable or not in Controller@method format, return as is
-        return $handler;
-    }
-
-    /**
      * Normalize a path to ensure consistent formatting
      *
      * @param string $path
@@ -386,7 +294,7 @@ class Router
         }
 
         // Remove trailing slash (except for root path)
-        if ($path !== '/' && substr($path, -1) === '/') {
+        if ($path !== '/' && str_ends_with($path, '/')) {
             $path = rtrim($path, '/');
         }
 
@@ -433,55 +341,5 @@ class Router
         }
 
         return $this;
-    }
-
-    /**
-     * Cache the compiled route dispatcher data
-     *
-     * @param string $cacheFile File path to store the cached data
-     * @return bool Whether caching was successful
-     */
-    public function cacheRoutes(string $cacheFile): bool
-    {
-        $routeCollector = new RouteCollector(new RouteParser(), new DataGenerator());
-
-        foreach ($this->routes as $route) {
-            $method = $route[0];
-            $path = $route[1];
-            $handler = $route[2];
-
-            $routeCollector->addRoute($method, $path, $handler);
-        }
-
-        $dispatchData = $routeCollector->getData();
-
-        $cacheContent = '<?php return ' . var_export($dispatchData, true) . ';';
-
-        $result = file_put_contents($cacheFile, $cacheContent);
-
-        return $result !== false;
-    }
-
-    /**
-     * Load cached route dispatcher data
-     *
-     * @param string $cacheFile File path to the cached data
-     * @return bool Whether loading was successful
-     */
-    public function loadCachedRoutes(string $cacheFile): bool
-    {
-        if (!file_exists($cacheFile)) {
-            return false;
-        }
-
-        $dispatchData = require $cacheFile;
-
-        if (!is_array($dispatchData)) {
-            return false;
-        }
-
-        $this->dispatcher = new GroupCountBasedDispatcher($dispatchData);
-
-        return true;
     }
 }

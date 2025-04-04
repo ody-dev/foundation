@@ -23,6 +23,7 @@ use Ody\Foundation\MiddlewareManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 /**
  * ControllerDispatcher
@@ -79,6 +80,7 @@ class ControllerDispatcher
      * @param string $action
      * @param array $routeParams
      * @return ResponseInterface
+     * @throws Throwable
      */
     public function dispatch(
         ServerRequestInterface $request,
@@ -124,7 +126,7 @@ class ControllerDispatcher
                 try {
                     $instance = $this->middlewareManager->resolve($middleware);
                     $pipeline->add($instance);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     $this->logger->error('Error resolving controller middleware', [
                         'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
                         'error' => $e->getMessage()
@@ -135,7 +137,7 @@ class ControllerDispatcher
             // Process the request through the middleware pipeline
             return $pipeline->handle($request);
 
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error("Controller dispatch error", [
                 'controller' => $controller,
                 'action' => $action,

@@ -14,6 +14,7 @@ use Ody\Foundation\Loaders\RouteLoader;
 use Ody\Foundation\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Throwable;
 
 /**
  * Route Service
@@ -88,6 +89,7 @@ class RouteService
      * Load all application routes during bootstrap
      *
      * @return void
+     * @throws Throwable
      */
     public function bootRoutes(): void
     {
@@ -96,7 +98,7 @@ class RouteService
             return;
         }
 
-        $this->logger->info("Loading application routes");
+        $this->logger->debug("Loading application routes");
 
         try {
             // Load core routes
@@ -109,7 +111,7 @@ class RouteService
             $this->router->markRoutesLoaded();
 
             $this->routesLoaded = true;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error("Error loading routes: {$e->getMessage()}", [
                 'exception' => $e,
                 'trace' => $e->getTraceAsString()
@@ -191,25 +193,5 @@ class RouteService
     public function getRouter(): Router
     {
         return $this->router;
-    }
-
-    /**
-     * Get the route loader instance
-     *
-     * @return RouteLoader
-     */
-    public function getRouteLoader(): RouteLoader
-    {
-        return $this->routeLoader;
-    }
-
-    /**
-     * Check if routes have been loaded
-     *
-     * @return bool
-     */
-    public function isRoutesLoaded(): bool
-    {
-        return $this->routesLoaded;
     }
 }

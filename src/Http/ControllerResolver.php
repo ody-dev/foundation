@@ -7,17 +7,9 @@
  *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
  */
 
-/*
- * This file is part of ODY framework.
- *
- * @link     https://ody.dev
- * @document https://ody.dev/docs
- * @license  https://github.com/ody-dev/ody-core/blob/master/LICENSE
- */
-
 namespace Ody\Foundation\Http;
 
-use Ody\Container\Container;
+use Exception;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -25,28 +17,19 @@ use Psr\Log\LoggerInterface;
  *
  * Resolves string controller references to callable instances
  */
-class ControllerResolver
+readonly class ControllerResolver
 {
-    /**
-     * @var Container
-     */
-    protected Container $container;
-
-    /**
-     * @var LoggerInterface
-     */
-    protected LoggerInterface $logger;
-
     /**
      * Constructor
      *
-     * @param Container $container
      * @param LoggerInterface $logger
+     * @param ControllerPool $controllerPool
      */
-    public function __construct(Container $container, LoggerInterface $logger)
+    public function __construct(
+        private LoggerInterface $logger,
+        private ControllerPool  $controllerPool // Add injection
+    )
     {
-        $this->container = $container;
-        $this->logger = $logger;
     }
 
     /**
@@ -54,7 +37,7 @@ class ControllerResolver
      *
      * @param string $class Controller class name
      * @return object Controller instance
-     * @throws \Exception If controller cannot be created
+     * @throws Exception If controller cannot be created
      */
     public function createController(string $class): object
     {
@@ -65,7 +48,7 @@ class ControllerResolver
             }
 
             // Get controller from pool
-            return ControllerPool::get($class, $this->container);
+            return $this->controllerPool->get($class);
         } catch (\Throwable $e) {
             $this->logger->error("Error creating controller", [
                 'controller' => $class,

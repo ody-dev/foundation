@@ -17,9 +17,11 @@
 
 namespace Ody\Foundation;
 
+use Mockery\Exception;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Http\ControllerDispatcher;
+use Ody\Foundation\Http\ControllerPool;
 use Ody\Foundation\Http\ControllerResolver;
 use Ody\Foundation\Http\Request;
 use Ody\Foundation\Http\Response;
@@ -105,6 +107,8 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      *
      * @param Container $container
      * @param ServiceProviderManager $providerManager
+     *
+     * TODO: Use DI for logger & config
      */
     public function __construct(
         private readonly Container              $container,
@@ -189,8 +193,6 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         // Boot all registered providers
         $this->providerManager->boot();
 
-
-
         // Configure controller caching
         $this->configureControllerCaching();
 
@@ -211,28 +213,31 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         $config = $this->container->make('config');
         $enableCaching = $config->get('app.controller_cache.enabled', true);
         $excludedControllers = $config->get('app.controller_cache.excluded', []);
+        $controllerPool = $this->container->get(\Ody\Foundation\Http\ControllerPool::class);
 
         ($enableCaching) ?
-            Http\ControllerPool::enableCaching() :
-            Http\ControllerPool::disableCaching();
+            $controllerPool->enableCaching() :
+            $controllerPool->disableCaching();
 
         // Register excluded controllers
         if (!empty($excludedControllers)) {
-            Http\ControllerPool::excludeControllers($excludedControllers);
+            $controllerPool->excludeControllers($excludedControllers);
         }
     }
 
-    public function precacheControllers()
+    public function precacheControllers(): void
     {
-        // Get configuration
+        // Get configuration directly if needed, or assume pool is configured
         $config = $this->container->get('config');
         $enableCaching = $config->get('app.controller_cache.enabled', true);
 
-        // Skip precaching if caching is disabled
         if (!$enableCaching) {
-            logger()->debug("Controller precaching skipped (caching disabled)");
+            logger()->debug("Controller precaching skipped (caching disabled via config)");
             return;
         }
+
+        /** @var ControllerPool $controllerPool */
+        $controllerPool = $this->container->get(\Ody\Foundation\Http\ControllerPool::class); // Use get() or make()
 
         $router = $this->container->make(Router::class);
         $routes = $router->getRoutes();
@@ -240,12 +245,19 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         foreach ($routes as $route) {
             $handler = $route[2]; // The handler
 
-            // If it's a controller@method string format
-            if (is_string($handler) && strpos($handler, '@') !== false) {
+            if (is_string($handler) && str_contains($handler, '@')) {
                 list($class, $method) = explode('@', $handler, 2);
+                try {
+                    if ($controllerPool->controllerIsCached($class)) {
+                        logger()->debug("Controller {$class} already cached, skipping precaching");
+                        continue;
+                    }
 
-                // This will cache the controller
-                Http\ControllerPool::get($class, $this->container);
+                    $controllerPool->get($class);
+                    logger()->debug("Precaching controller: {$class}");
+                } catch (\Throwable $e) {
+                    logger()->error("Failed to precache controller {$class}", ['error' => $e->getMessage()]);
+                }
             }
         }
     }
@@ -293,7 +305,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             }
 
             // If we found a route, get the handler
-            $handler = $routeInfo['handler'];
+            $handlerIdentifier = $routeInfo['handler'];
             $routeParams = $routeInfo['vars'] ?? [];
 
             // Add route parameters to the request
@@ -302,14 +314,19 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
             }
 
             // Set controller and action in coroutine context for middleware use
-            if (isset($routeInfo['controller']) && isset($routeInfo['action'])) {
+            if (is_string($handlerIdentifier) && isset($routeInfo['controller']) && isset($routeInfo['action'])) {
                 ContextManager::set('_controller', $routeInfo['controller']);
                 ContextManager::set('_action', $routeInfo['action']);
+                // Pass controller CLASS and ACTION STRINGS to dispatcher
                 return $this->dispatchToController($request, $routeInfo['controller'], $routeInfo['action'], $routeParams);
+            } elseif (is_callable($handlerIdentifier)) {
+                // Dispatch directly with middleware (handle closures/other callables)
+                // Ensure dispatchWithMiddleware can handle closures correctly
+                // It might need the handlerIdentifier directly
+                return $this->dispatchWithMiddleware($request, $handlerIdentifier, $routeParams);
             }
 
-            // Otherwise, handle as a regular route with regular middleware
-            return $this->dispatchWithMiddleware($request, $handler, $routeParams);
+            throw new Exception('Invalid route handler identifier');
 
         } catch (\Throwable $e) {
             return $this->handleException($request, $e);
@@ -398,7 +415,10 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
         if (!$this->controllerDispatcher) {
             $this->controllerDispatcher = new ControllerDispatcher(
                 $this->container,
-                new ControllerResolver($this->container, $this->container->make('logger')),
+                new ControllerResolver(
+                    $this->container->make('logger'),
+                    $this->container->make(ControllerPool::class)
+                ),
                 $this->getMiddlewareManager(),
                 $this->container->make('logger')
             );
@@ -411,6 +431,7 @@ class Application implements \Psr\Http\Server\RequestHandlerInterface
      * Get the middleware manager
      *
      * @return MiddlewareManager
+     * @throws BindingResolutionException
      */
     public function getMiddlewareManager(): MiddlewareManager
     {

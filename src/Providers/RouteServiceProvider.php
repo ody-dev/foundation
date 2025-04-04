@@ -12,6 +12,7 @@ namespace Ody\Foundation\Providers;
 use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router\Router;
 use Ody\Foundation\Router\RouteService;
+use Psr\Log\LoggerInterface;
 
 /**
  * Route Service Provider
@@ -30,8 +31,8 @@ class RouteServiceProvider extends ServiceProvider
         // Register the Router in the container
         $this->container->singleton(Router::class, function ($container) {
             return new Router(
-                $container,
                 $container->make(MiddlewareManager::class),
+                $container->make(LoggerInterface::class)
             );
         });
 
@@ -41,7 +42,7 @@ class RouteServiceProvider extends ServiceProvider
                 $container,
                 $container->make(Router::class),
                 $container->make(MiddlewareManager::class),
-                logger(),
+                $container->make(LoggerInterface::class)
             );
         });
 

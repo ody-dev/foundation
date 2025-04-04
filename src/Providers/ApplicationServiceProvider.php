@@ -11,8 +11,7 @@ namespace Ody\Foundation\Providers;
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Ody\Foundation\Application;
-use Ody\Foundation\MiddlewareManager;
-use Ody\Foundation\Router\Router;
+use Ody\Foundation\Http\ControllerPool;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -32,7 +31,6 @@ class ApplicationServiceProvider extends ServiceProvider
      */
     protected array $singletons = [
         Application::class => null,
-        Router::class => null,
         Psr17Factory::class => null,
         ServerRequestFactoryInterface::class => Psr17Factory::class,
         ResponseFactoryInterface::class => Psr17Factory::class,
@@ -56,11 +54,7 @@ class ApplicationServiceProvider extends ServiceProvider
     public function register(): void
     {
         // Register router with container and middleware
-        // Register router with container and middleware manager
-        $this->singleton(Router::class, function ($container) {
-            $middlewareManager = $container->make(MiddlewareManager::class);
-            return new Router($container, $middlewareManager);
-        });
+
 
         // Register application
         $this->singleton(Application::class, function ($container) {
@@ -78,6 +72,32 @@ class ApplicationServiceProvider extends ServiceProvider
             // Return the Application with correct constructor parameters
             return new Application($container, $providerManager);
         });
+
+        $this->singleton(ControllerPool::class, function ($container) {
+            $config = $container->make(\Ody\Support\Config::class);
+            $logger = $container->make(\Psr\Log\LoggerInterface::class);
+
+            $enableCaching = $config->get('app.controller_cache.enabled', true);
+            $excludedControllers = $config->get('app.controller_cache.excluded', []);
+
+            return new \Ody\Foundation\Http\ControllerPool(
+                $container,
+                $logger,
+                $enableCaching,
+                $excludedControllers
+            );
+        });
+
+        // Register router with container and middleware manager
+        // TODO: gets registered in RouterServiceProvider
+//        $this->singleton(Router::class, function ($container) {
+//            $middlewareManager = $container->make(MiddlewareManager::class);
+//            return new Router(
+//                $container,
+//                $middlewareManager,
+//                $container->make(ControllerPool::class)
+//            );
+//        });
     }
 
     /**

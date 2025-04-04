@@ -26,51 +26,69 @@ class ControllerPool
 {
     /**
      * Enable or disable controller caching globally
+     *
      * @var bool
      */
-    private static bool $enableCaching = true;
+    private bool $enableCaching;
 
     /**
      * Controller classes that should be excluded from caching
+     *
      * @var array
      */
-    private static array $excludedControllers = [];
+    private array $excludedControllers = [];
 
     /**
      * Cached controller instances (stored in worker memory)
+     *
      * @var array
      */
-    private static array $instances = [];
+    private array $instances = [];
 
     /**
      * Cached dependency information (stored in worker memory)
+     *
      * @var array
      */
-    private static array $dependencyInfo = [];
+    private array $dependencyInfo = [];
+
+    public function __construct(
+        private readonly Container       $container,
+        private readonly LoggerInterface $logger,
+        bool                             $enableCaching = true,
+        array                            $excludedControllers = []
+    )
+    {
+        $this->enableCaching = $enableCaching;
+        $this->excludedControllers = $excludedControllers;
+        $this->logger->debug("ControllerPool instance created for worker.", [
+            'cachingEnabled' => $this->enableCaching,
+            'excludedCount' => count($this->excludedControllers)
+        ]);
+    }
 
     /**
      * Get a controller instance, either from cache or newly created
      *
      * @param string $class Fully qualified class name
-     * @param Container $container DI container
      * @return object Controller instance
+     * @throws BindingResolutionException If controller instantiation fails
      * @throws ReflectionException If controller instantiation fails
      */
-    public static function get(string $class, Container $container): object
+    public function get(string $class): object
     {
-        if (!self::shouldCache($class)) {
-            return self::createInstance($class, $container);
+
+        if (!$this->shouldCache($class)) {
+            return $this->createInstance($class);
         }
 
-        if (isset(self::$instances[$class])) {
-            logger()->debug("ControllerPool: Using cached instance of {$class}");
-            return self::$instances[$class];
+        if (isset($this->instances[$class])) {
+            $this->logger->debug("ControllerPool: Using cached instance of {$class}");
+            return $this->instances[$class];
         }
 
-        $instance = self::createInstance($class, $container);
-
-        self::$instances[$class] = $instance;
-
+        $instance = $this->createInstance($class);
+        $this->instances[$class] = $instance;
         return $instance;
     }
 
@@ -80,22 +98,22 @@ class ControllerPool
      * @param string $class
      * @return bool
      */
-    private static function shouldCache(string $class): bool
+    private function shouldCache(string $class): bool
     {
-        return self::$enableCaching && !in_array($class, self::$excludedControllers);
+        return $this->enableCaching && !in_array($class, $this->excludedControllers);
     }
 
     /**
      * Create a new controller instance with resolved dependencies
      *
      * @param string $class
-     * @param Container $container
      * @return object
-     * @throws ReflectionException|BindingResolutionException
+     * @throws BindingResolutionException
+     * @throws ReflectionException
      */
-    private static function createInstance(string $class, Container $container): object
+    private function createInstance(string $class): object
     {
-        $dependencies = self::getDependencyInfo($class);
+        $dependencies = $this->getDependencyInfo($class);
 
         if (empty($dependencies)) {
             return new $class();
@@ -103,7 +121,9 @@ class ControllerPool
 
         // Resolve dependencies
         $parameters = [];
-        $logger = $container->has(LoggerInterface::class) ? $container->make(LoggerInterface::class) : null;
+        $logger = $this->container->has(LoggerInterface::class) ?
+            $this->container->make(LoggerInterface::class) :
+            null;
 
         foreach ($dependencies as $paramInfo) {
             // For typed parameters that aren't built-in types
@@ -112,7 +132,7 @@ class ControllerPool
 
                 // Try to resolve from container
                 try {
-                    $parameters[] = $container->make($typeName);
+                    $parameters[] = $this->container->make($typeName);
                     continue;
                 } catch (\Throwable $e) {
                     if ($logger) {
@@ -143,11 +163,11 @@ class ControllerPool
      * @param string $class
      * @return array Dependency information
      */
-    private static function getDependencyInfo(string $class): array
+    private function getDependencyInfo(string $class): array
     {
         // Return cached info if available
-        if (isset(self::$dependencyInfo[$class])) {
-            return self::$dependencyInfo[$class];
+        if (isset($this->dependencyInfo[$class])) {
+            return $this->dependencyInfo[$class];
         }
 
         try {
@@ -157,7 +177,7 @@ class ControllerPool
 
             // If no constructor, no dependencies
             if ($constructor === null) {
-                self::$dependencyInfo[$class] = [];
+                $this->dependencyInfo[$class] = [];
                 return [];
             }
 
@@ -192,12 +212,12 @@ class ControllerPool
             }
 
             // Cache the dependency information
-            self::$dependencyInfo[$class] = $dependencies;
+            $this->dependencyInfo[$class] = $dependencies;
 
             return $dependencies;
 
         } catch (\Throwable $e) {
-            logger()->error("Error analyzing controller dependencies", [
+            $this->logger->error("Error analyzing controller dependencies", [
                 'controller' => $class,
                 'error' => $e->getMessage()
             ]);
@@ -207,49 +227,31 @@ class ControllerPool
     }
 
     /**
-     * Clear all cached instances and dependency information
-     *
-     * @return void
-     */
-    public static function clearCache(): void
-    {
-        self::$instances = [];
-        self::$dependencyInfo = [];
-        logger()->debug("ControllerPool: Cache cleared");
-    }
-
-    /**
-     * Remove a specific controller from the cache
-     *
-     * @param string $class
-     * @return void
-     */
-    public static function removeFromCache(string $class): void
-    {
-        unset(self::$instances[$class]);
-        logger()->debug("ControllerPool: Removed {$class} from cache");
-    }
-
-    /**
-     * Disable controller caching globally
-     *
-     * @return void
-     */
-    public static function disableCaching(): void
-    {
-        self::$enableCaching = false;
-        logger()->debug("ControllerPool: Caching disabled globally");
-    }
-
-    /**
      * Enable controller caching globally
      *
      * @return void
      */
-    public static function enableCaching(): void
+    public function enableCaching(): void
     {
-        self::$enableCaching = true;
+        $this->enableCaching = true;
         logger()->debug("ControllerPool: Caching enabled globally");
+    }
+
+    /**
+     * Clear all cached instances and dependency information
+     *
+     * @return void
+     */
+    public function clearCache(): void
+    {
+        $this->instances = [];
+        $this->dependencyInfo = [];
+        $this->logger->debug("ControllerPool: Cache cleared");
+    }
+
+    public function controllerIsCached(string $class)
+    {
+        return isset($this->instances[$class]);
     }
 
     /**
@@ -258,34 +260,29 @@ class ControllerPool
      * @param string $controllerClass
      * @return void
      */
-    public static function excludeController(string $controllerClass): void
+    public function excludeController(string $controllerClass): void
     {
-        if (!in_array($controllerClass, self::$excludedControllers)) {
-            self::$excludedControllers[] = $controllerClass;
-            logger()->debug("ControllerPool: Excluded {$controllerClass} from caching");
+        if (!in_array($controllerClass, $this->excludedControllers)) {
+            $this->excludedControllers[] = $controllerClass;
+            $this->logger->debug("ControllerPool: Excluded {$controllerClass} from caching");
         }
     }
 
     /**
-     * Add multiple controller classes to the exclusion list
-     *
-     * @param array $controllerClasses
+     * @param bool $enabled
      * @return void
      */
-    public static function excludeControllers(array $controllerClasses): void
+    public function setCachingEnabled(bool $enabled): void
     {
-        foreach ($controllerClasses as $class) {
-            self::excludeController($class);
-        }
+        $this->enableCaching = $enabled;
     }
 
     /**
-     * Get the currently cached controllers (for diagnostic purposes)
-     *
-     * @return array
+     * @param array $excluded
+     * @return void
      */
-    public static function getCachedControllers(): array
+    public function setExcludedControllers(array $excluded): void
     {
-        return array_keys(self::$instances);
+        $this->excludedControllers = $excluded;
     }
 }
