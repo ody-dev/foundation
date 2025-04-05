@@ -7,25 +7,15 @@
  *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
  */
 
-/*
- * This file is part of ODY framework.
- *
- * @link     https://ody.dev
- * @document https://ody.dev/docs
- * @license  https://github.com/ody-dev/ody-core/blob/master/LICENSE
- */
-
 namespace Ody\Foundation\Http;
 
+use Nyholm\Psr7\Factory\Psr17Factory;
+use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\UriInterface;
 use Psr\Http\Message\StreamInterface;
-use Psr\Http\Message\UploadedFileInterface;
-use Nyholm\Psr7\Factory\Psr17Factory;
-use Nyholm\Psr7\ServerRequest as NyholmServerRequest;
-use Nyholm\Psr7Server\ServerRequestCreator;
+use Psr\Http\Message\UriInterface;
 use Swoole\Http\Request as SwooleRequest;
 
 /**

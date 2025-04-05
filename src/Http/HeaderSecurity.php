@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
+use InvalidArgumentException;
 use function get_debug_type;
 use function in_array;
 use function is_numeric;
@@ -127,18 +128,18 @@ final class HeaderSecurity
      * Assert a header value is valid.
      *
      * @param mixed $value Value to be tested. This method asserts it is a string or number.
-     * @throws Exception\InvalidArgumentException For invalid values.
+     * @throws InvalidArgumentException For invalid values.
      */
     public static function assertValid(mixed $value): void
     {
         if (! is_string($value) && ! is_numeric($value)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Invalid header value type; must be a string or numeric; received %s',
                 get_debug_type($value)
             ));
         }
         if (! self::isValid($value)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '"%s" is not valid header value',
                 $value
             ));
@@ -146,22 +147,22 @@ final class HeaderSecurity
     }
 
     /**
-     * Assert whether or not a header name is valid.
+     * Assert whether a header name is valid.
      *
      * @see http://tools.ietf.org/html/rfc7230#section-3.2
      *
-     * @throws Exception\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public static function assertValidName(mixed $name): void
     {
         if (! is_string($name)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Invalid header name type; expected string; received %s',
                 get_debug_type($name)
             ));
         }
         if (! preg_match('/^[a-zA-Z0-9\'`#$%&*+.^_|~!-]+$/D', $name)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '"%s" is not valid header name',
                 $name
             ));

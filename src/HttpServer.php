@@ -43,10 +43,7 @@ class HttpServer
      */
     public static function onRequest(SwRequest $request, SwResponse $response): void
     {
-        $workerPid = getmypid();
-        $app = self::$workerApplicationMap[$workerPid];
-        $appIsNull = is_null($app);
-        logger()->debug("Worker {$workerPid} handling request. App is null: " . ($appIsNull ? 'YES' : 'NO')); // Log state
+        $app = self::$workerApplicationMap[getmypid()];
 
         Coroutine::create(function () use ($request, $response, $app) {
             static::setContext($request);
@@ -65,13 +62,11 @@ class HttpServer
     {
         $workerPid = getmypid();
         logger()->debug('worker start: ' . $workerId);
-        logger()->debug('initializing application');
         $app = Bootstrap::init();
-        $app = $app->bootstrap();
 
         static::$workerApplicationMap[$workerPid] = $app;
 
-        logger()->debug("Worker {$workerPid} initialized and bootstrapped its own Application instance.");
+        logger()->debug("[Worker {$workerPid}] initialized and bootstrapped its own Application instance.");
 
         // Save worker ids to serverState.json
         if ($workerPid == config('server.additional.worker_num') - 1) {

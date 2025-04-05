@@ -7,14 +7,6 @@
  *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
  */
 
-/*
- * This file is part of ODY framework.
- *
- * @link     https://ody.dev
- * @document https://ody.dev/docs
- * @license  https://github.com/ody-dev/ody-core/blob/master/LICENSE
- */
-
 namespace Ody\Foundation\Middleware;
 
 use Ody\Foundation\Http\Response;
@@ -82,8 +74,7 @@ class RoleMiddleware implements MiddlewareInterface
         $response = new Response();
         return $response
             ->withStatus(403)
-            ->json()
-            ->withJson([
+            ->json([
                 'error' => 'Forbidden - Insufficient permissions',
                 'required_role' => $requiredRole
             ]);

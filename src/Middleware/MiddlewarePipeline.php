@@ -7,14 +7,6 @@
  *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
  */
 
-/*
- * This file is part of ODY framework.
- *
- * @link     https://ody.dev
- * @document https://ody.dev/docs
- * @license  https://github.com/ody-dev/ody-core/blob/master/LICENSE
- */
-
 namespace Ody\Foundation\Middleware;
 
 use Psr\Http\Message\ResponseInterface;
@@ -42,20 +34,6 @@ class MiddlewarePipeline implements RequestHandlerInterface
     public function __construct(callable $finalHandler)
     {
         $this->finalHandler = $finalHandler;
-    }
-
-    /**
-     * Create a pipeline from an array of middleware
-     *
-     * @param array $middleware
-     * @param callable $finalHandler
-     * @return self
-     */
-    public static function fromArray(array $middleware, callable $finalHandler): self
-    {
-        $pipeline = new self($finalHandler);
-        $pipeline->addMultiple($middleware);
-        return $pipeline;
     }
 
     /**

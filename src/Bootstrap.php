@@ -23,16 +23,6 @@ use Ody\Foundation\Providers\ServiceProviderManager;
 class Bootstrap
 {
     /**
-     * Static instance of the application
-     */
-    private static ?Application $instance = null;
-
-    /**
-     * Track bootstrap operation status
-     */
-    private static bool $bootstrapping = false;
-
-    /**
      * Initialize the application
      */
     public static function init(
@@ -40,48 +30,46 @@ class Bootstrap
         ?string $basePath = null,
     ): Application
     {
-        // Return existing instance if already initialized
-        if (self::$instance !== null) {
-            // Ensure it's bootstrapped
-            if (!self::$instance->isBootstrapped()) {
-                self::$instance->bootstrap();
-            }
+        return (new Bootstrap)->handle(
+            $container,
+            $basePath,
+        );
+    }
 
-            return self::$instance;
-        }
+    public function handle($container, $basePath)
+    {
+        $this->initBasePath($basePath);
+        $container = $this->initContainer($container);
 
-        if (self::$bootstrapping) {
-            exit(1); // TODO: throw appropriate exception;
-        }
+        $providerManager = new ServiceProviderManager($container);
+        $container->instance(ServiceProviderManager::class, $providerManager);
 
-        // Set bootstrapping flag to prevent recursion
-        self::$bootstrapping = true;
+        $container->instance('runningInConsole', false);
 
-        try {
-            self::initBasePath($basePath);
-            $container = self::initContainer($container);
+        $application = $this->createApplication($container, $providerManager);
 
-            $providerManager = new ServiceProviderManager($container);
-            $container->instance(ServiceProviderManager::class, $providerManager);
+        return $application;
+    }
 
-            // Determine if we're running in console mode
-            $container->instance('runningInConsole', false);
+    /**
+     * Create and bootstrap the application
+     *
+     * @param Container $container
+     * @param ServiceProviderManager $providerManager
+     * @return Application
+     * @throws BindingResolutionException
+     */
+    private function createApplication(Container $container, ServiceProviderManager $providerManager): Application
+    {
+        // Create the application
+        $application = $container->has(Application::class)
+            ? $container->make(Application::class)
+            : new Application($container, $providerManager);
 
-            // Create application but don't bootstrap it yet
-            $application = self::createApplication($container, $providerManager);
+        $container->instance(Application::class, $application);
+        $container->alias(Application::class, 'app');
 
-            // Store the instance immediately (before bootstrapping)
-            self::$instance = $application;
-
-            // Reset bootstrapping flag
-            self::$bootstrapping = false;
-
-            return $application;
-        } catch (\Throwable $e) {
-            // Reset flag
-            self::$bootstrapping = false;
-            throw $e;
-        }
+        return $application->bootstrap();
     }
 
     /**
@@ -90,7 +78,7 @@ class Bootstrap
      * @param string|null $basePath
      * @return void
      */
-    private static function initBasePath(?string $basePath = null): void
+    private function initBasePath(?string $basePath = null): void
     {
         // Use provided path, or determine from current file location
         $basePath = $basePath ?? dirname(__DIR__, 2);
@@ -107,7 +95,7 @@ class Bootstrap
      * @param Container|null $container
      * @return Container
      */
-    private static function initContainer(?Container $container = null): Container
+    private function initContainer(?Container $container = null): Container
     {
         // Create container if not provided
         $container = $container ?? new Container();
@@ -116,26 +104,5 @@ class Bootstrap
         Container::setInstance($container);
 
         return $container;
-    }
-
-    /**
-     * Create and bootstrap the application
-     *
-     * @param Container $container
-     * @param ServiceProviderManager $providerManager
-     * @return Application
-     * @throws BindingResolutionException
-     */
-    private static function createApplication(Container $container, ServiceProviderManager $providerManager): Application
-    {
-        // Create the application
-        $application = $container->has(Application::class)
-            ? $container->make(Application::class)
-            : new Application($container, $providerManager);
-
-        $container->instance(Application::class, $application);
-        $container->alias(Application::class, 'app');
-
-        return $application;
     }
 }
