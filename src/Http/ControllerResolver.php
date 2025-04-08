@@ -27,7 +27,7 @@ readonly class ControllerResolver
      */
     public function __construct(
         private LoggerInterface $logger,
-        private ControllerPool  $controllerPool // Add injection
+        private ControllerPool $controllerPool
     )
     {
     }

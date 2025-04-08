@@ -11,7 +11,7 @@ namespace Ody\Foundation\Router;
 
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
-use Ody\Foundation\MiddlewareManager;
+use Ody\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use function FastRoute\simpleDispatcher;
 

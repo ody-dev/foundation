@@ -10,8 +10,8 @@
 namespace Ody\Foundation\Http;
 
 use Ody\Container\Container;
-use Ody\Foundation\Middleware\MiddlewarePipeline;
-use Ody\Foundation\MiddlewareManager;
+use Ody\Middleware\MiddlewareManager;
+use Ody\Middleware\MiddlewarePipeline;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
@@ -35,9 +35,9 @@ class ControllerDispatcher
     protected ControllerResolver $resolver;
 
     /**
-     * @var MiddlewareManager
+     * @var ?MiddlewareManager
      */
-    protected MiddlewareManager $middlewareManager;
+    protected ?MiddlewareManager $middlewareManager = null;
 
     /**
      * @var LoggerInterface
@@ -49,14 +49,14 @@ class ControllerDispatcher
      *
      * @param Container $container
      * @param ControllerResolver $resolver
-     * @param MiddlewareManager $middlewareManager
+     * @param ?MiddlewareManager $middlewareManager
      * @param LoggerInterface $logger
      */
     public function __construct(
         Container $container,
         ControllerResolver $resolver,
-        MiddlewareManager $middlewareManager,
-        LoggerInterface   $logger
+        LoggerInterface    $logger,
+        ?MiddlewareManager $middlewareManager = null
     ) {
         $this->container = $container;
         $this->resolver = $resolver;
@@ -84,18 +84,6 @@ class ControllerDispatcher
             // Resolve the controller
             $controllerInstance = $this->resolver->createController($controller);
 
-            // Get middleware for the controller and action
-            $method = $request->getMethod();
-            $path = $request->getUri()->getPath();
-
-            // Get middleware for this controller/action
-            $middlewareStack = $this->middlewareManager->getMiddlewareForRoute(
-                $method,
-                $path,
-                $controller,
-                $action
-            );
-
             // Create a final handler for the controller action
             $finalHandler = function (ServerRequestInterface $request) use ($controllerInstance, $action, $routeParams) {
                 // Create a response instance
@@ -109,6 +97,18 @@ class ControllerDispatcher
                 // Call the controller action with request, response, and any route parameters
                 return call_user_func([$controllerInstance, $action], $request, $response, $routeParams);
             };
+
+            // Get middleware for the controller and action
+            $method = $request->getMethod();
+            $path = $request->getUri()->getPath();
+
+            // Get middleware for this controller/action
+            $middlewareStack = $this->middlewareManager->getMiddlewareForRoute(
+                $method,
+                $path,
+                $controller,
+                $action
+            );
 
             // Create a middleware pipeline from the resolved stack
             $pipeline = new MiddlewarePipeline($finalHandler);

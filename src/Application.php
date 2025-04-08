@@ -24,6 +24,7 @@ use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
 use Ody\Foundation\Router\Router;
+use Ody\Middleware\MiddlewareManager;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -361,7 +362,7 @@ class Application implements RequestHandlerInterface
         };
 
         // Create a middleware pipeline
-        $pipeline = new Middleware\MiddlewarePipeline($finalHandler);
+        $pipeline = new \Ody\Middleware\MiddlewarePipeline($finalHandler);
 
         // Add resolved middleware instances to the pipeline
         foreach ($middlewareStack as $middleware) {
@@ -395,8 +396,8 @@ class Application implements RequestHandlerInterface
                     $this->container->make('logger'),
                     $this->container->make(ControllerPool::class)
                 ),
+                $this->container->make('logger'),
                 $this->getMiddlewareManager(),
-                $this->container->make('logger')
             );
         }
 
@@ -411,7 +412,7 @@ class Application implements RequestHandlerInterface
      */
     public function getMiddlewareManager(): MiddlewareManager
     {
-        if ($this->middlewareManager === null) {
+        if ($this->middlewareManager === null && $this->container->has(MiddlewareManager::class)) {
             $this->middlewareManager = $this->container->make(MiddlewareManager::class);
         }
 

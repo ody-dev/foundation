@@ -122,9 +122,7 @@ class ControllerPool
 
         // Resolve dependencies
         $parameters = [];
-        $logger = $this->container->has(LoggerInterface::class) ?
-            $this->container->make(LoggerInterface::class) :
-            null;
+        $logger = $this->container->make(LoggerInterface::class);
 
         foreach ($dependencies as $paramInfo) {
             // For typed parameters that aren't built-in types
@@ -136,9 +134,12 @@ class ControllerPool
                     $parameters[] = $this->container->make($typeName);
                     continue;
                 } catch (\Throwable $e) {
-                    if ($logger) {
-                        $logger->debug("Failed to resolve {$typeName} from container: {$e->getMessage()}");
-                    }
+                    $this->logger->error("ControllerPool FAILED container->make for: {$typeName}", [
+                        'error_message' => $e->getMessage(),
+                        'error_file' => $e->getFile(),
+                        'error_line' => $e->getLine(),
+                        'error_trace' => $e->getTraceAsString()
+                    ]);
                 }
             }
 

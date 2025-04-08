@@ -31,7 +31,7 @@ return [
         'http' => [
             // Core providers
             \Ody\Foundation\Providers\FacadeServiceProvider::class,
-            \Ody\Foundation\Providers\MiddlewareServiceProvider::class,
+            \Ody\Middleware\Providers\MiddlewareServiceProvider::class,
             \Ody\Foundation\Providers\RouteServiceProvider::class,
             \Ody\Foundation\Providers\ErrorServiceProvider::class,
             \Ody\Foundation\Providers\CacheServiceProvider::class,
@@ -80,9 +80,9 @@ return [
     ],
     'middleware' => [
         'global' => [
-            \Ody\Foundation\Middleware\ErrorHandlerMiddleware::class,
-            \Ody\Foundation\Middleware\CorsMiddleware::class,
-            \Ody\Foundation\Middleware\JsonBodyParserMiddleware::class,
+            \Ody\Middleware\ErrorHandlerMiddleware::class,
+            \Ody\Middleware\CorsMiddleware::class,
+            \Ody\Middleware\JsonBodyParserMiddleware::class,
         ],
         'named' => [
             'auth' => \Ody\Auth\Middleware\AuthMiddleware::class,
@@ -90,7 +90,7 @@ return [
         'groups' => [
             'api' => [
                 \Ody\Auth\Middleware\AuthMiddleware::class,
-                \Ody\Foundation\Middleware\ThrottleMiddleware::class,
+                \Ody\Middleware\ThrottleMiddleware::class,
             ]
         ]
     ],

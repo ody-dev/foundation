@@ -9,9 +9,9 @@
 
 namespace Ody\Foundation\Providers;
 
-use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router\Router;
 use Ody\Foundation\Router\RouteService;
+use Ody\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 
 /**

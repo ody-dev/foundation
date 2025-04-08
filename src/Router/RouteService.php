@@ -11,7 +11,7 @@ namespace Ody\Foundation\Router;
 
 use Ody\Container\Container;
 use Ody\Foundation\Loaders\RouteLoader;
-use Ody\Foundation\MiddlewareManager;
+use Ody\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;

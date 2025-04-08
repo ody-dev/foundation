@@ -10,8 +10,8 @@
 namespace Ody\Foundation\Loaders;
 
 use Ody\Container\Container;
-use Ody\Foundation\MiddlewareManager;
 use Ody\Foundation\Router\Router;
+use Ody\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
