@@ -12,9 +12,10 @@ declare(strict_types=1);
 namespace Ody\Foundation\Http;
 
 use InvalidArgumentException;
+use Ody\Foundation\Http\Exception\UploadedFileAlreadyMovedException;
+use Ody\Foundation\Http\Exception\UploadedFileErrorException;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
-
 use function dirname;
 use function fclose;
 use function file_exists;
@@ -25,9 +26,7 @@ use function is_resource;
 use function is_string;
 use function is_writable;
 use function move_uploaded_file;
-use function str_starts_with;
 use function unlink;
-
 use const PHP_SAPI;
 use const UPLOAD_ERR_CANT_WRITE;
 use const UPLOAD_ERR_EXTENSION;
@@ -40,7 +39,7 @@ use const UPLOAD_ERR_PARTIAL;
 
 class UploadedFile implements UploadedFileInterface
 {
-    public const ERROR_MESSAGES = [
+    public const array ERROR_MESSAGES = [
         UPLOAD_ERR_OK         => 'There is no error, the file uploaded with success',
         UPLOAD_ERR_INI_SIZE   => 'The uploaded file exceeds the upload_max_filesize directive in php.ini',
         UPLOAD_ERR_FORM_SIZE  => 'The uploaded file exceeds the MAX_FILE_SIZE directive that was '
@@ -61,13 +60,16 @@ class UploadedFile implements UploadedFileInterface
     private ?StreamInterface $stream = null;
 
     /**
-     * @param string|resource|StreamInterface $streamOrFile
-     * @throws InvalidArgumentException
+     * @param string|StreamInterface $streamOrFile
+     * @param int|null $size
+     * @param int $errorStatus
+     * @param string|null $clientFilename
+     * @param string|null $clientMediaType
      */
     public function __construct(
-        $streamOrFile,
-        private readonly ?int $size,
-        int $errorStatus,
+        StreamInterface|string $streamOrFile,
+        private readonly ?int  $size,
+        int                    $errorStatus,
         private readonly ?string $clientFilename = null,
         private readonly ?string $clientMediaType = null
     ) {
@@ -98,12 +100,12 @@ class UploadedFile implements UploadedFileInterface
     /**
      * {@inheritdoc}
      *
-     * @throws Exception\UploadedFileAlreadyMovedException If the upload was not successful.
+     * @throws UploadedFileAlreadyMovedException|UploadedFileErrorException If the upload was not successful.
      */
     public function getStream(): StreamInterface
     {
         if ($this->error !== UPLOAD_ERR_OK) {
-            throw Exception\UploadedFileErrorException::dueToStreamUploadError(
+            throw UploadedFileErrorException::dueToStreamUploadError(
                 self::ERROR_MESSAGES[$this->error]
             );
         }
@@ -164,20 +166,20 @@ class UploadedFile implements UploadedFileInterface
                 $this->moveUploadedFileInSwoole($this->file, $targetPath);
                 break;
 
-            case empty($sapi)
-                || str_starts_with($sapi, 'cli')
-                || str_starts_with($sapi, 'phpdbg')
-                || $this->file === null:
-                // Non-SAPI environment, or no filename present
-                $this->writeFile($targetPath);
-
-                if ($this->stream instanceof StreamInterface) {
-                    $this->stream->close();
-                }
-                if (is_string($this->file) && file_exists($this->file)) {
-                    unlink($this->file);
-                }
-                break;
+//            case empty($sapi)
+//                || str_starts_with($sapi, 'cli')
+//                || str_starts_with($sapi, 'phpdbg')
+//                || $this->file === null:
+//                // Non-SAPI environment, or no filename present
+//                $this->writeFile($targetPath);
+//
+//                if ($this->stream instanceof StreamInterface) {
+//                    $this->stream->close();
+//                }
+//                if (is_string($this->file) && file_exists($this->file)) {
+//                    unlink($this->file);
+//                }
+//                break;
 
             default:
                 // SAPI environment, with file present
@@ -208,10 +210,7 @@ class UploadedFile implements UploadedFileInterface
             throw Exception\UploadedFileErrorException::dueToUnwritableTarget(dirname($targetPath));
         }
 
-        // Delete the source file
-        if (file_exists($sourcePath)) {
-            unlink($sourcePath);
-        }
+        unlink($sourcePath);
 
         // Close stream if open
         if ($this->stream instanceof StreamInterface) {
@@ -262,6 +261,7 @@ class UploadedFile implements UploadedFileInterface
 
     /**
      * Write internal stream to given path
+     * @throws UploadedFileErrorException
      */
     private function writeFile(string $path): void
     {

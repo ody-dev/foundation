@@ -40,7 +40,7 @@ return [
             \Ody\DB\Providers\DatabaseServiceProvider::class,
 
             // Add your application service providers here
-            \App\Providers\AppServiceProvider::class,
+//            \App\Providers\AppServiceProvider::class,
         ],
 
         /**

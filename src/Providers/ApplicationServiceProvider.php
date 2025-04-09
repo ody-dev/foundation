@@ -27,7 +27,7 @@ class ApplicationServiceProvider extends ServiceProvider
     /**
      * Services that should be registered as singletons
      *
-     * @var array
+     * @var array<string, mixed>
      */
     protected array $singletons = [
         Application::class => null,
@@ -38,13 +38,6 @@ class ApplicationServiceProvider extends ServiceProvider
         UploadedFileFactoryInterface::class => Psr17Factory::class,
         UriFactoryInterface::class => Psr17Factory::class,
     ];
-
-    /**
-     * Tags for organizing services
-     *
-     * @var array
-     */
-    protected array $tags = [];
 
     /**
      * Register custom services

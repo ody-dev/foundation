@@ -18,9 +18,11 @@
 namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
+use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Support\Config;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Throwable;
 
 /**
  * Service Provider Manager
@@ -35,7 +37,7 @@ class ServiceProviderManager
     protected Container $container;
 
     /**
-     * All of the registered service providers.
+     * All the registered service providers.
      *
      * @var ServiceProvider[]
      */
@@ -92,8 +94,9 @@ class ServiceProviderManager
      * @param string|ServiceProvider $provider
      * @param bool $force Force registration even if already registered
      * @return ServiceProvider
+     * @throws Throwable
      */
-    public function register($provider, bool $force = false): ServiceProvider
+    public function register(string|ServiceProvider $provider, bool $force = false): ServiceProvider
     {
         // Convert string provider to instance
         $providerName = is_string($provider) ? $provider : get_class($provider);
@@ -111,7 +114,7 @@ class ServiceProviderManager
             // Create the provider instance
             try {
                 $provider = $this->resolveProvider($providerClass);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 error_log("Error resolving provider {$providerClass}: " . $e->getMessage());
                 throw $e;
             }
@@ -126,7 +129,7 @@ class ServiceProviderManager
         }
 
         // Set the container on the provider
-        if (!isset($provider->container) || $provider->container === null) {
+        if (!isset($provider->container)) {
             $provider->container = $this->container;
         }
 
@@ -186,6 +189,7 @@ class ServiceProviderManager
      *
      * @param string $providerClass
      * @return ServiceProvider
+     * @throws BindingResolutionException
      */
     protected function resolveProvider(string $providerClass): ServiceProvider
     {
@@ -202,6 +206,7 @@ class ServiceProviderManager
      * Boot all registered providers.
      *
      * @return void
+     * @throws Throwable
      */
     public function boot(): void
     {
@@ -215,6 +220,7 @@ class ServiceProviderManager
      *
      * @param ServiceProvider $provider
      * @return void
+     * @throws Throwable
      */
     public function bootProvider(ServiceProvider $provider): void
     {
@@ -222,7 +228,7 @@ class ServiceProviderManager
             try {
                 $provider->boot();
                 $this->logger->debug("Booted provider: " . get_class($provider));
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $this->logger->error("Error booting provider: " . get_class($provider), [
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
@@ -237,7 +243,7 @@ class ServiceProviderManager
      * Register providers from configuration.
      *
      * @param string $configKey Path to providers config (e.g., 'app.providers')
-     * @return int Number of providers registered
+     * @return void
      */
     public function registerConfigProviders(string $configKey): void
     {
@@ -284,7 +290,7 @@ class ServiceProviderManager
             unset($this->deferred[$service]);
 
             return true;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error("Error loading deferred provider: {$providerClass}", [
                 'service' => $service,
                 'error' => $e->getMessage(),

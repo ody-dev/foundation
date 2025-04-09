@@ -12,11 +12,14 @@ declare(strict_types=1);
 namespace Ody\Foundation\Http;
 
 use InvalidArgumentException;
+use Laminas\Diactoros\Exception\UnreadableStreamException;
+use Laminas\Diactoros\Exception\UnseekableStreamException;
+use Laminas\Diactoros\Exception\UntellableStreamException;
+use Laminas\Diactoros\Exception\UnwritableStreamException;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Stringable;
 use Throwable;
-
 use function array_key_exists;
 use function fclose;
 use function feof;
@@ -35,7 +38,6 @@ use function sprintf;
 use function str_contains;
 use function stream_get_contents;
 use function stream_get_meta_data;
-
 use const SEEK_SET;
 
 /**
@@ -147,12 +149,12 @@ class Stream implements StreamInterface, Stringable
     public function tell(): int
     {
         if (! $this->resource) {
-            throw Exception\UntellableStreamException::dueToMissingResource();
+            throw UntellableStreamException::dueToMissingResource();
         }
 
         $result = ftell($this->resource);
         if (! is_int($result)) {
-            throw Exception\UntellableStreamException::dueToPhpError();
+            throw UntellableStreamException::dueToPhpError();
         }
 
         return $result;
@@ -189,17 +191,17 @@ class Stream implements StreamInterface, Stringable
     public function seek(int $offset, int $whence = SEEK_SET): void
     {
         if (! $this->resource) {
-            throw Exception\UnseekableStreamException::dueToMissingResource();
+            throw UnseekableStreamException::dueToMissingResource();
         }
 
         if (! $this->isSeekable()) {
-            throw Exception\UnseekableStreamException::dueToConfiguration();
+            throw UnseekableStreamException::dueToConfiguration();
         }
 
         $result = fseek($this->resource, $offset, $whence);
 
         if (0 !== $result) {
-            throw Exception\UnseekableStreamException::dueToPhpError();
+            throw UnseekableStreamException::dueToPhpError();
         }
     }
 
@@ -236,17 +238,17 @@ class Stream implements StreamInterface, Stringable
     public function write($string): int
     {
         if (! $this->resource) {
-            throw Exception\UnwritableStreamException::dueToMissingResource();
+            throw UnwritableStreamException::dueToMissingResource();
         }
 
         if (! $this->isWritable()) {
-            throw Exception\UnwritableStreamException::dueToConfiguration();
+            throw UnwritableStreamException::dueToConfiguration();
         }
 
         $result = fwrite($this->resource, $string);
 
         if (false === $result) {
-            throw Exception\UnwritableStreamException::dueToPhpError();
+            throw UnwritableStreamException::dueToPhpError();
         }
 
         return $result;
@@ -273,17 +275,17 @@ class Stream implements StreamInterface, Stringable
     public function read(int $length): string
     {
         if (! $this->resource) {
-            throw Exception\UnreadableStreamException::dueToMissingResource();
+            throw UnreadableStreamException::dueToMissingResource();
         }
 
         if (! $this->isReadable()) {
-            throw Exception\UnreadableStreamException::dueToConfiguration();
+            throw UnreadableStreamException::dueToConfiguration();
         }
 
         $result = fread($this->resource, $length);
 
         if (false === $result) {
-            throw Exception\UnreadableStreamException::dueToPhpError();
+            throw UnreadableStreamException::dueToPhpError();
         }
 
         return $result;
@@ -295,12 +297,12 @@ class Stream implements StreamInterface, Stringable
     public function getContents(): string
     {
         if (! $this->isReadable()) {
-            throw Exception\UnreadableStreamException::dueToConfiguration();
+            throw UnreadableStreamException::dueToConfiguration();
         }
 
         $result = stream_get_contents($this->resource);
         if (false === $result) {
-            throw Exception\UnreadableStreamException::dueToPhpError();
+            throw UnreadableStreamException::dueToPhpError();
         }
         return $result;
     }
@@ -345,7 +347,7 @@ class Stream implements StreamInterface, Stringable
             }
 
             if (! is_resource($resource)) {
-                throw new Exception\RuntimeException(
+                throw new RuntimeException(
                     sprintf(
                         'Empty or non-existent stream identifier or file path provided: "%s"',
                         $stream,

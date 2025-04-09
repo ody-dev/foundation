@@ -24,13 +24,14 @@ use Ody\Foundation\Providers\EnvServiceProvider;
 use Ody\Foundation\Providers\LoggingServiceProvider;
 use Ody\Foundation\Providers\ServiceProviderManager;
 use Ody\Foundation\Router\Router;
+use Ody\Logger\StreamLogger;
 use Ody\Middleware\MiddlewareManager;
+use Ody\Middleware\MiddlewarePipeline;
 use Ody\Swoole\Coroutine\ContextManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Throwable;
 
 /**
@@ -93,8 +94,7 @@ class Application implements RequestHandlerInterface
         private readonly ServiceProviderManager $providerManager
     )
     {
-        // Use a NullLogger temporarily until a real logger is registered
-        $this->logger = new NullLogger();
+        $this->logger = new StreamLogger('php://stdout');
 
         // Register self in container
         $this->container->instance(Application::class, $this);
@@ -160,7 +160,7 @@ class Application implements RequestHandlerInterface
     public function bootstrap(): self
     {
         if ($this->bootstrapped) {
-            logger()->debug("Application::bootstrap() already bootstrapped, skipping");
+            $this->logger->debug("Application::bootstrap() already bootstrapped, skipping");
             return $this;
         }
 
@@ -209,7 +209,7 @@ class Application implements RequestHandlerInterface
         $enableCaching = $config->get('app.controller_cache.enabled', true);
 
         if (!$enableCaching) {
-            logger()->debug("Controller precaching skipped (caching disabled via config)");
+            $this->logger->debug("Controller precaching skipped (caching disabled via config)");
             return;
         }
 
@@ -231,9 +231,9 @@ class Application implements RequestHandlerInterface
 
                     $controllerPool->get($class);
                     $workerId = getmypid();
-                    logger()->debug("[Worker {$workerId}] Precaching controller: {$class}");
+                    $this->logger->debug("[Worker {$workerId}] Precaching controller: {$class}");
                 } catch (\Throwable $e) {
-                    logger()->error("Failed to precache controller {$class}", ['error' => $e->getMessage()]);
+                    $this->logger->error("Failed to precache controller {$class}", ['error' => $e->getMessage()]);
                 }
             }
         }
@@ -318,6 +318,7 @@ class Application implements RequestHandlerInterface
      * @param string $action
      * @param array $routeParams
      * @return ResponseInterface
+     * @throws Throwable
      */
     protected function dispatchToController(
         ServerRequestInterface $request,
@@ -339,6 +340,7 @@ class Application implements RequestHandlerInterface
      * @param callable $handler
      * @param array $routeParams
      * @return ResponseInterface
+     * @throws BindingResolutionException
      */
     protected function dispatchWithMiddleware(
         ServerRequestInterface $request,
@@ -362,7 +364,7 @@ class Application implements RequestHandlerInterface
         };
 
         // Create a middleware pipeline
-        $pipeline = new \Ody\Middleware\MiddlewarePipeline($finalHandler);
+        $pipeline = new MiddlewarePipeline($finalHandler);
 
         // Add resolved middleware instances to the pipeline
         foreach ($middlewareStack as $middleware) {

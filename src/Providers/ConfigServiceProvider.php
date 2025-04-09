@@ -85,7 +85,7 @@ class ConfigServiceProvider extends ServiceProvider
             return $this->loadIndividualConfigFiles($config, $possiblePaths);
         }
 
-        return count($config->all()) > 0;
+        return true;
     }
 
     /**

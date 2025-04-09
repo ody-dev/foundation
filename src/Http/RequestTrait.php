@@ -11,10 +11,10 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
+use InvalidArgumentException;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UriInterface;
-
 use function array_keys;
 use function is_string;
 use function preg_match;
@@ -53,17 +53,17 @@ trait RequestTrait
      *
      * Used by constructors.
      *
-     * @param null|string|UriInterface $uri URI for the request, if any.
+     * @param string|UriInterface|null $uri URI for the request, if any.
      * @param null|string $method HTTP method for the request, if any.
-     * @param string|resource|StreamInterface $body Message body, if any.
+     * @param string|StreamInterface $body Message body, if any.
      * @param array $headers Headers for the message, if any.
-     * @throws Exception\InvalidArgumentException For any invalid value.
+     * @throws InvalidArgumentException For any invalid value.
      */
     private function initialize(
-        $uri = null,
-        ?string $method = null,
-        $body = 'php://memory',
-        array $headers = []
+        UriInterface|string    $uri = null,
+        ?string                $method = null,
+        StreamInterface|string $body = 'php://memory',
+        array                  $headers = []
     ): void {
         if ($method !== null) {
             $this->setMethod($method);
@@ -94,7 +94,7 @@ trait RequestTrait
      *
      * Otherwise, it raises an exception.
      *
-     * @throws Exception\InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     private function createUri(null|string|UriInterface $uri): UriInterface
     {
@@ -156,13 +156,13 @@ trait RequestTrait
      * @link http://tools.ietf.org/html/rfc7230#section-2.7 (for the various
      *     request-target forms allowed in request messages)
      *
-     * @throws Exception\InvalidArgumentException If the request target is invalid.
-     * @return static
+     * @param string $requestTarget
+     * @return RequestInterface
      */
     public function withRequestTarget(string $requestTarget): RequestInterface
     {
         if (preg_match('#\s#', $requestTarget)) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid request target provided; cannot contain whitespace'
             );
         }
@@ -194,8 +194,7 @@ trait RequestTrait
      * changed request method.
      *
      * @param string $method Case-insensitive method.
-     * @throws Exception\InvalidArgumentException For invalid HTTP methods.
-     * @return static
+     * @return RequestInterface
      */
     public function withMethod(string $method): RequestInterface
     {
@@ -282,12 +281,12 @@ trait RequestTrait
     /**
      * Set and validate the HTTP method
      *
-     * @throws Exception\InvalidArgumentException On invalid HTTP method.
+     * @throws InvalidArgumentException On invalid HTTP method.
      */
     private function setMethod(string $method): void
     {
-        if (! preg_match('/^[!#$%&\'*+.^_`\|~0-9a-z-]+$/i', $method)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+        if (!preg_match('/^[!#$%&\'*+.^_`|~0-9a-z-]+$/i', $method)) {
+            throw new InvalidArgumentException(sprintf(
                 'Unsupported HTTP method "%s" provided',
                 $method
             ));

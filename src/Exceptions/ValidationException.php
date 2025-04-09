@@ -51,6 +51,6 @@ class ValidationException extends HttpException
      */
     public static function withErrors(array $errors): self
     {
-        return new static($errors);
+        return new ValidationException($errors);
     }
 }

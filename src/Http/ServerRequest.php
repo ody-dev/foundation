@@ -11,13 +11,11 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
-use Psr\Http\Message\MessageInterface;
-use Psr\Http\Message\RequestInterface;
+use InvalidArgumentException;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
-
 use function array_key_exists;
 use function gettype;
 use function is_array;
@@ -57,7 +55,7 @@ class ServerRequest implements ServerRequestInterface
      * @param array $queryParams Query params for the message, if any.
      * @param null|array|object $parsedBody The deserialized body parameters, if any.
      * @param string $protocol HTTP protocol version.
-     * @throws Exception\InvalidArgumentException For any invalid value.
+     * @throws InvalidArgumentException For any invalid value.
      */
     public function __construct(
         private array $serverParams = [],
@@ -158,8 +156,8 @@ class ServerRequest implements ServerRequestInterface
      */
     public function withParsedBody($data): ServerRequest
     {
-        if (! is_array($data) && ! is_object($data) && null !== $data) {
-            throw new Exception\InvalidArgumentException(sprintf(
+        if (!is_array($data) && !is_object($data)) {
+            throw new InvalidArgumentException(sprintf(
                 '%s expects a null, array, or object argument; received %s',
                 __METHOD__,
                 gettype($data)
@@ -214,7 +212,7 @@ class ServerRequest implements ServerRequestInterface
     /**
      * Recursively validate the structure in an uploaded files array.
      *
-     * @throws Exception\InvalidArgumentException If any leaf is not an UploadedFileInterface instance.
+     * @throws InvalidArgumentException If any leaf is not an UploadedFileInterface instance.
      */
     private function validateUploadedFiles(array $uploadedFiles): void
     {
@@ -225,7 +223,7 @@ class ServerRequest implements ServerRequestInterface
             }
 
             if (! $file instanceof UploadedFileInterface) {
-                throw new Exception\InvalidArgumentException('Invalid leaf in uploaded files structure');
+                throw new InvalidArgumentException('Invalid leaf in uploaded files structure');
             }
         }
     }

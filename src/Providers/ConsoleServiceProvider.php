@@ -28,7 +28,7 @@ class ConsoleServiceProvider extends ServiceProvider
     /**
      * Services that should be registered as singletons
      *
-     * @var array
+     * @var array<string, mixed>
      */
     protected array $singletons = [
         SymfonyConsole::class => null,

@@ -26,7 +26,7 @@ class FacadeServiceProvider extends ServiceProvider
     /**
      * Services that should be registered as aliases
      *
-     * @var array
+     * @var array<string, string>
      */
     protected array $aliases = [
         'router' => Router::class,
@@ -36,7 +36,7 @@ class FacadeServiceProvider extends ServiceProvider
     /**
      * Services that should be registered as singletons
      *
-     * @var array
+     * @var array<string, mixed>
      */
     protected array $singletons = [
         'request' => null,

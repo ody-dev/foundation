@@ -9,6 +9,8 @@
 
 namespace Ody\Foundation\Facades;
 
+use Ody\Foundation\Router\Router;
+
 /**
  * Route Facade
  *
@@ -19,9 +21,9 @@ class Route
     /**
      * Get the router instance from the container
      *
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    protected static function router()
+    protected static function router(): Router
     {
         return app('router');
     }
@@ -69,7 +71,7 @@ class Route
      * @param mixed $handler
      * @return \Ody\Foundation\Router\Route
      */
-    public static function delete(string $path, $handler)
+    public static function delete(string $path, $handler): \Ody\Foundation\Router\Route
     {
         return static::router()->delete($path, $handler);
     }
@@ -93,7 +95,7 @@ class Route
      * @param mixed $handler
      * @return \Ody\Foundation\Router\Route
      */
-    public static function options(string $path, $handler)
+    public static function options(string $path, $handler): \Ody\Foundation\Router\Route
     {
         return static::router()->options($path, $handler);
     }
@@ -103,9 +105,9 @@ class Route
      *
      * @param array $attributes
      * @param callable $callback
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    public static function group(array $attributes, callable $callback)
+    public static function group(array $attributes, callable $callback): Router
     {
         return static::router()->group($attributes, $callback);
     }
@@ -116,9 +118,9 @@ class Route
      * @param string $name
      * @param string $controller
      * @param array $options
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    public static function resource(string $name, string $controller, array $options = [])
+    public static function resource(string $name, string $controller, array $options = []): Router
     {
         return static::router()->resource($name, $controller, $options);
     }
@@ -129,9 +131,9 @@ class Route
      * @param string $name
      * @param string $controller
      * @param array $options
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    public static function apiResource(string $name, string $controller, array $options = [])
+    public static function apiResource(string $name, string $controller, array $options = []): Router
     {
         // Default to excluding create and edit routes for API resources
         $options['except'] = $options['except'] ?? [];
@@ -153,7 +155,7 @@ class Route
      * @param mixed $handler
      * @return \Ody\Foundation\Router\Route
      */
-    public static function match(array $methods, string $path, $handler)
+    public static function match(array $methods, string $path, $handler): ?\Ody\Foundation\Router\Route
     {
         $route = null;
 
@@ -172,9 +174,9 @@ class Route
      *
      * @param string $path
      * @param mixed $handler
-     * @return \Ody\Foundation\Router\Route
+     * @return \Ody\Foundation\Router\Route|null
      */
-    public static function any(string $path, $handler)
+    public static function any(string $path, $handler): ?\Ody\Foundation\Router\Route
     {
         return static::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], $path, $handler);
     }
@@ -182,11 +184,12 @@ class Route
     /**
      * Register a route that responds to specified HTTP verbs
      *
+     * @param array $methods
      * @param string $path
      * @param mixed $handler
-     * @return \Ody\Foundation\Router\Route
+     * @return \Ody\Foundation\Router\Route|null
      */
-    public static function methods(array $methods, string $path, $handler)
+    public static function methods(array $methods, string $path, $handler): ?\Ody\Foundation\Router\Route
     {
         return static::match($methods, $path, $handler);
     }
@@ -199,7 +202,7 @@ class Route
      * @param mixed $handler
      * @return \Ody\Foundation\Router\Route
      */
-    public static function name(string $name, string $path, $handler)
+    public static function name(string $name, string $path, $handler): \Ody\Foundation\Router\Route
     {
         // This implementation depends on your Route class's support for naming
         $route = static::get($path, $handler);
@@ -217,9 +220,9 @@ class Route
      *
      * @param string $prefix
      * @param array $routes
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    public static function prefix(string $prefix, array $routes)
+    public static function prefix(string $prefix, array $routes): Router
     {
         return static::group(['prefix' => $prefix], function ($router) use ($routes) {
             foreach ($routes as $route) {
@@ -241,9 +244,9 @@ class Route
      *
      * @param array|string $middleware
      * @param mixed $routes
-     * @return \Ody\Foundation\Router\Router
+     * @return Router
      */
-    public static function middleware($middleware, $routes)
+    public static function middleware($middleware, $routes): Router
     {
         if (is_array($routes)) {
             return static::group(['middleware' => $middleware], function ($router) use ($routes) {
@@ -259,20 +262,9 @@ class Route
                     }
                 }
             });
-        } elseif (is_callable($routes)) {
-            return static::group(['middleware' => $middleware], $routes);
         }
-    }
 
-    /**
-     * Register a fallback route
-     *
-     * @param mixed $handler
-     * @return \Ody\Foundation\Router\Route
-     */
-    public static function fallback($handler)
-    {
-        return static::get('/{fallback}', $handler)->where('fallback', '.*');
+        return static::group(['middleware' => $middleware], $routes);
     }
 
     /**
@@ -283,7 +275,7 @@ class Route
      * @param array $constraints
      * @return \Ody\Foundation\Router\Route
      */
-    public static function pattern(string $path, $handler, array $constraints)
+    public static function pattern(string $path, $handler, array $constraints): \Ody\Foundation\Router\Route
     {
         $route = static::get($path, $handler);
 

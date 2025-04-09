@@ -22,7 +22,7 @@ class LoggingServiceProvider extends ServiceProvider
     /**
      * Services that should be registered as aliases
      *
-     * @var array
+     * @var array<string, string>
      */
     protected array $aliases = [
         'log' => LogManager::class,

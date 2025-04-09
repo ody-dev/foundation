@@ -153,11 +153,7 @@ abstract class Command extends SymfonyCommand
         // Get container instance
         $this->container = Container::getInstance();
 
-        if ($this->container) {
-            $this->logger = $this->container->make(LoggerInterface::class);
-        } else {
-            $this->io->warning('Container not initialized');
-        }
+        $this->logger = $this->container->make(LoggerInterface::class);
     }
 
     /**

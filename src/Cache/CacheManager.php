@@ -170,6 +170,7 @@ class CacheManager
      *
      * @param array|string $tags
      * @return TaggedCache
+     * @throws CacheException
      */
     public function tags($tags): TaggedCache
     {
@@ -184,6 +185,7 @@ class CacheManager
      * @param string $method
      * @param array $parameters
      * @return mixed
+     * @throws CacheException
      */
     public function __call(string $method, array $parameters)
     {

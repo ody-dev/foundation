@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /*
  *  This file is part of ODY framework.
  *
@@ -15,6 +17,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Psr\Log\LoggerInterface;
 use Swoole\Http\Request;
 use Swoole\Http\Response;
 
@@ -22,7 +25,7 @@ final class RequestCallback
 {
 
     /**
-     * @var RequestHandlerInterface|Application
+     * @var Application
      */
     private RequestHandlerInterface $handler;
 
@@ -30,6 +33,8 @@ final class RequestCallback
      * @var RequestCallbackOptions
      */
     private RequestCallbackOptions $options;
+
+    private LoggerInterface $logger;
 
     /**
      * @param Application $handler
@@ -39,6 +44,7 @@ final class RequestCallback
     {
         $this->handler = $handler;
         $this->options = $options ?? new RequestCallbackOptions();
+        $this->logger = $handler->getLogger();
     }
 
     /**
@@ -56,7 +62,7 @@ final class RequestCallback
             $serverRequest = $this->createServerRequest($request);
 
             // Log the request start with request ID
-            logger()->debug("Processing request", [
+            $this->logger->debug("Processing request", [
                 'request_id' => $requestId,
                 'method' => $serverRequest->getMethod(),
                 'path' => $serverRequest->getUri()->getPath()
@@ -71,9 +77,7 @@ final class RequestCallback
             // Convert PSR-7 response to Swoole response
             $this->emit($psrResponse, $response);
         } catch (\Throwable $e) {
-            $logger = $this->handler instanceof Application
-                ? $this->handler->getLogger()
-                : null;
+            $logger = $this->handler->getLogger();
 
             $errorContext = [
                 'request_id' => $requestId,
@@ -88,11 +92,7 @@ final class RequestCallback
                 'client_ip' => $request->server['remote_addr'] ?? 'UNKNOWN'
             ];
 
-            if ($logger) {
-                $logger->error('Unhandled exception in request handling', $errorContext);
-            } else {
-                logger()->critical('Unhandled exception in request handling', $errorContext);
-            }
+            $logger->error('Unhandled exception in request handling', $errorContext);
 
             // Send error response with request ID
             $response->status(500);
@@ -162,7 +162,7 @@ final class RequestCallback
             if (json_last_error() === JSON_ERROR_NONE) {
                 $serverRequest = $serverRequest->withParsedBody($parsedBody);
             } else {
-                logger()->error("RequestCallback: Failed to parse JSON body: " . json_last_error_msg());
+                $this->logger->error("RequestCallback: Failed to parse JSON body: " . json_last_error_msg());
             }
         }
         // For form data requests
@@ -185,7 +185,7 @@ final class RequestCallback
                 $files = normalizeUploadedFiles($swooleRequest->files);
 
                 // Add debug logging
-                logger()->debug('Processed file uploads in multipart request', [
+                $this->logger->debug('Processed file uploads in multipart request', [
                     'count' => count($files),
                     'keys' => array_keys($swooleRequest->files)
                 ]);
@@ -251,7 +251,7 @@ final class RequestCallback
 
             return $normalizedFiles;
         } catch (\Throwable $e) {
-            logger()->error('Error processing uploaded files', [
+            $this->logger->error('Error processing uploaded files', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -280,7 +280,7 @@ final class RequestCallback
                 $uri = $meta['uri'] ?? null;
 
                 if ($uri && !is_readable($uri)) {
-                    logger()->warning('Upload temp file not readable', [
+                    $this->logger->warning('Upload temp file not readable', [
                         'key' => $key,
                         'uri' => $uri
                     ]);

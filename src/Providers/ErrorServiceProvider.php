@@ -9,6 +9,7 @@
 
 namespace Ody\Foundation\Providers;
 
+use ErrorException;
 use Ody\Container\Container;
 use Ody\Foundation\Exceptions\Handler;
 use Ody\Support\Config;
@@ -40,6 +41,7 @@ class ErrorServiceProvider extends ServiceProvider
      * Bootstrap the error handler
      *
      * @return void
+     * @throws ErrorException
      */
     public function boot(): void
     {
@@ -60,8 +62,10 @@ class ErrorServiceProvider extends ServiceProvider
         // Convert PHP errors to exceptions
         set_error_handler(function ($level, $message, $file = '', $line = 0) {
             if (error_reporting() & $level) {
-                throw new \ErrorException($message, 0, $level, $file, $line);
+                throw new ErrorException($message, 0, $level, $file, $line);
             }
+
+            return true;
         });
 
         // Handle uncaught exceptions
@@ -92,7 +96,7 @@ class ErrorServiceProvider extends ServiceProvider
 
             if ($error !== null && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
                 // Create an exception from the error
-                $exception = new \ErrorException(
+                $exception = new ErrorException(
                     $error['message'],
                     0,
                     $error['type'],

@@ -14,6 +14,7 @@ namespace Ody\Foundation;
 use Ody\Container\Container;
 use Ody\Container\Contracts\BindingResolutionException;
 use Ody\Foundation\Providers\ServiceProviderManager;
+use Throwable;
 
 /**
  * Application Bootstrap
@@ -36,7 +37,13 @@ class Bootstrap
         );
     }
 
-    public function handle($container, $basePath)
+    /**
+     * @param $container
+     * @param $basePath
+     * @return Application
+     * @throws BindingResolutionException
+     */
+    public function handle($container, $basePath): Application
     {
         $this->initBasePath($basePath);
         $container = $this->initContainer($container);
@@ -46,9 +53,7 @@ class Bootstrap
 
         $container->instance('runningInConsole', false);
 
-        $application = $this->createApplication($container, $providerManager);
-
-        return $application;
+        return $this->createApplication($container, $providerManager);
     }
 
     /**
@@ -57,7 +62,7 @@ class Bootstrap
      * @param Container $container
      * @param ServiceProviderManager $providerManager
      * @return Application
-     * @throws BindingResolutionException
+     * @throws BindingResolutionException|Throwable
      */
     private function createApplication(Container $container, ServiceProviderManager $providerManager): Application
     {

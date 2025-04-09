@@ -11,8 +11,9 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
+use Exception;
+use InvalidArgumentException;
 use Psr\Http\Message\UploadedFileInterface;
-
 use function is_array;
 use function sprintf;
 
@@ -23,7 +24,7 @@ use function sprintf;
  * arrays are normalized.
  *
  * @return UploadedFileInterface[]
- * @throws Exception\InvalidArgumentException For unrecognized values.
+ * @throws Exception | InvalidArgumentException For unrecognized values.
  */
 function normalizeUploadedFiles(array $files): array
 {
@@ -49,7 +50,7 @@ function normalizeUploadedFiles(array $files): array
             if (is_array($value)) {
                 // Traverse
                 $normalized[$key] = $recursiveNormalize(
-                    $tmpNameTree[$key],
+                    $value,
                     $sizeTree[$key],
                     $errorTree[$key],
                     $nameTree[$key] ?? null,
@@ -58,7 +59,7 @@ function normalizeUploadedFiles(array $files): array
                 continue;
             }
             $normalized[$key] = createUploadedFile([
-                'tmp_name' => $tmpNameTree[$key],
+                'tmp_name' => $value,
                 'size'     => $sizeTree[$key],
                 'error'    => $errorTree[$key],
                 'name'     => $nameTree[$key] ?? null,
@@ -88,7 +89,7 @@ function normalizeUploadedFiles(array $files): array
             || ! isset($files['size']) || ! is_array($files['size'])
             || ! isset($files['error']) || ! is_array($files['error'])
         ) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '$files provided to %s MUST contain each of the keys "tmp_name",'
                 . ' "size", and "error", with each represented as an array;'
                 . ' one or more were missing or non-array values',
@@ -127,7 +128,7 @@ function normalizeUploadedFiles(array $files): array
             continue;
         }
 
-        throw new Exception\InvalidArgumentException('Invalid value in files specification');
+        throw new InvalidArgumentException('Invalid value in files specification');
     }
     return $normalized;
 }

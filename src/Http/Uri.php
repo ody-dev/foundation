@@ -11,10 +11,10 @@ declare(strict_types=1);
 
 namespace Ody\Foundation\Http;
 
+use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;
 use SensitiveParameter;
 use Stringable;
-
 use function array_keys;
 use function explode;
 use function implode;
@@ -298,7 +298,7 @@ class Uri implements UriInterface, Stringable
         }
 
         if ($port !== null && ($port < 1 || $port > 65535)) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Invalid port "%d" specified; must be a valid TCP/UDP port',
                 $port
             ));
@@ -316,13 +316,13 @@ class Uri implements UriInterface, Stringable
     public function withPath(string $path): UriInterface
     {
         if (str_contains($path, '?')) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid path provided; must not contain a query string'
             );
         }
 
         if (str_contains($path, '#')) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid path provided; must not contain a URI fragment'
             );
         }
@@ -346,7 +346,7 @@ class Uri implements UriInterface, Stringable
     public function withQuery(string $query): UriInterface
     {
         if (str_contains($query, '#')) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Query string must not include a URI fragment'
             );
         }
@@ -393,7 +393,7 @@ class Uri implements UriInterface, Stringable
         $parts = parse_url($uri);
 
         if (false === $parts) {
-            throw new Exception\InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'The source URI string appears to be malformed'
             );
         }
@@ -414,7 +414,7 @@ class Uri implements UriInterface, Stringable
     /**
      * Create a URI string from its various parts
      */
-    private static function createUriString(
+    protected static function createUriString(
         string $scheme,
         string $authority,
         string $path,
@@ -480,7 +480,7 @@ class Uri implements UriInterface, Stringable
         }
 
         if (! isset($this->allowedSchemes[$scheme])) {
-            throw new Exception\InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Unsupported scheme "%s"; must be any empty string or in the set (%s)',
                 $scheme,
                 implode(', ', array_keys($this->allowedSchemes))
@@ -504,7 +504,7 @@ class Uri implements UriInterface, Stringable
          * to match and thus prevent double-encoding.
          */
         return preg_replace_callback(
-            '/(?:[^%' . self::CHAR_UNRESERVED . self::CHAR_SUB_DELIMS . ']+|%(?![A-Fa-f0-9]{2}))/u',
+            '/[^%' . self::CHAR_UNRESERVED . self::CHAR_SUB_DELIMS . '!$&\'(\)\*\+,;=!\$&\'(]/u',
             [$this, 'urlEncodeChar'],
             $part
         );

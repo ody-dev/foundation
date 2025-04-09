@@ -7,10 +7,9 @@
  *  @license  https://github.com/ody-dev/ody-foundation/blob/master/LICENSE
  */
 
-namespace Ody\Foundation\Loaders;
+namespace Ody\Foundation\Router;
 
 use Ody\Container\Container;
-use Ody\Foundation\Router\Router;
 use Ody\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -110,7 +109,7 @@ class RouteLoader
 
         // Apply attributes if provided (for route groups)
         if (!empty($attributes)) {
-            $router->group($attributes, function () use ($path, $router, $middlewareManager, $container) {
+            $router->group($attributes, function () use ($path) {
                 require $path;
             });
         } else {

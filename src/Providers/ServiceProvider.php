@@ -11,8 +11,8 @@ namespace Ody\Foundation\Providers;
 
 use Ody\Container\Container;
 use Ody\Foundation\Console\CommandRegistry;
-use Ody\Foundation\Loaders\RouteLoader;
 use Ody\Foundation\Publishing\Publisher;
+use Ody\Foundation\Router\RouteLoader;
 use Ody\Foundation\Router\Router;
 
 /**
