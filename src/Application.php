@@ -284,24 +284,54 @@ class Application implements RequestHandlerInterface
             // If we found a route, get the handler
             $handlerIdentifier = $routeInfo['handler'];
             $routeParams = $routeInfo['vars'] ?? [];
+            $controllerClass = $routeInfo['controller'] ?? null;
+            $action = $routeInfo['action'] ?? null;
+            $isPsr15Handler = $routeInfo['is_psr15'] ?? false;
 
             // Add route parameters to the request
             foreach ($routeParams as $name => $value) {
                 $request = $request->withAttribute($name, $value);
             }
 
-            // Set controller and action in coroutine context for middleware use
-            if (is_string($handlerIdentifier) && isset($routeInfo['controller']) && isset($routeInfo['action'])) {
-                ContextManager::set('_controller', $routeInfo['controller']);
-                ContextManager::set('_action', $routeInfo['action']);
-                // Pass controller CLASS and ACTION STRINGS to dispatcher
-                return $this->dispatchToController($request, $routeInfo['controller'], $routeInfo['action'], $routeParams);
+            ContextManager::set('_controller', $routeInfo['controller']);
+            ContextManager::set('_action', $routeInfo['action']);
+
+            if ($isPsr15Handler && $controllerClass) {
+                // Resolve the PSR-15 handler instance
+                $handlerInstance = $this->getControllerResolver()->createController($controllerClass);
+
+                if (!($handlerInstance instanceof RequestHandlerInterface)) {
+                    // This should ideally not happen if router check is correct, but good safeguard
+                    throw new \RuntimeException("Resolved handler {$controllerClass} does not implement RequestHandlerInterface");
+                }
+                // Dispatch using the middleware pipeline, passing the RESOLVED INSTANCE
+                return $this->dispatchWithMiddleware($request, $handlerInstance, $routeParams);
+
+            } elseif ($controllerClass && $action) {
+                return $this->dispatchToController($request, $controllerClass, $action, $routeParams);
+
             } elseif (is_callable($handlerIdentifier)) {
-                // Dispatch directly with middleware (handle closures/other callables)
-                // Ensure dispatchWithMiddleware can handle closures correctly
-                // It might need the handlerIdentifier directly
+                // Pass the closure to be wrapped by the adapter
                 return $this->dispatchWithMiddleware($request, $handlerIdentifier, $routeParams);
+
+            } else {
+                // Handle cases where the handler string was invalid
+                $this->logger->error("Application::handle: Invalid route handler configuration detected for path.", ['routeInfo' => $routeInfo]);
+                return $this->handleNotFound($request); // Or a 500 error
             }
+
+            // Set controller and action in coroutine context for middleware use
+//            if (is_string($handlerIdentifier) && isset($routeInfo['controller']) && isset($routeInfo['action'])) {
+//                ContextManager::set('_controller', $routeInfo['controller']);
+//                ContextManager::set('_action', $routeInfo['action']);
+//                // Pass controller CLASS and ACTION STRINGS to dispatcher
+//                return $this->dispatchToController($request, $routeInfo['controller'], $routeInfo['action'], $routeParams);
+//            } elseif (is_callable($handlerIdentifier)) {
+//                // Dispatch directly with middleware (handle closures/other callables)
+//                // Ensure dispatchWithMiddleware can handle closures correctly
+//                // It might need the handlerIdentifier directly
+//                return $this->dispatchWithMiddleware($request, $handlerIdentifier, $routeParams);
+//            }
 
             throw new Exception('Invalid route handler identifier');
 
@@ -337,43 +367,70 @@ class Application implements RequestHandlerInterface
      * Dispatch a request with middleware
      *
      * @param ServerRequestInterface $request
-     * @param callable $handler
+     * @param callable|RequestHandlerInterface $handler
      * @param array $routeParams
      * @return ResponseInterface
      * @throws BindingResolutionException
      */
     protected function dispatchWithMiddleware(
-        ServerRequestInterface $request,
-        callable $handler,
-        array $routeParams
+        ServerRequestInterface           $request,
+        callable|RequestHandlerInterface $handler,
+        array                            $routeParams
     ): ResponseInterface {
-        // Get middleware stack for the route
         $middlewareManager = $this->getMiddlewareManager();
         $middlewareStack = $middlewareManager->getMiddlewareForRoute(
             $request->getMethod(),
             $request->getUri()->getPath()
+        // Potentially pass controller/action if available for more specific middleware matching
         );
 
-        // Create a response object for the handler
-        $response = new Response();
+        // Prepare the final handler WRAPPER for the pipeline
+        $finalHandlerCallable = null;
 
-        // Create a final handler for the route
-        $finalHandler = function (ServerRequestInterface $request) use ($handler, $response, $routeParams) {
-            // Pass both response and route params
-            return call_user_func($handler, $request, $response, $routeParams);
-        };
+        if ($handler instanceof RequestHandlerInterface) {
+            // If it's already a PSR-15 handler instance, create a callable
+            // that invokes its handle method.
+            $finalHandlerCallable = function (ServerRequestInterface $request) use ($handler) {
+                // Note: We might lose $routeParams here if the PSR-15 handler expects them via attributes.
+                // Ensure route params are added to the request *before* this point (in Application::handle).
+                return $handler->handle($request);
+            };
+        } elseif (is_callable($handler)) {
+            // If it's a callable (Closure), create a wrapper
+            $finalHandlerCallable = function (ServerRequestInterface $request) use ($handler, $routeParams) {
+                $response = $this->container->make(Response::class); // Provide a response instance
+                // Add route parameters JUST before calling the closure handler
+                // (Redundant if already done in Application::handle, but safe)
+                foreach ($routeParams as $name => $value) {
+                    $request = $request->withAttribute($name, $value);
+                }
+                // Assuming closure signature: fn(Request, Response, array $params)
+                return call_user_func($handler, $request, $response, $routeParams);
+            };
+        } else {
+            throw new \InvalidArgumentException("Invalid handler type passed to dispatchWithMiddleware");
+        }
 
-        // Create a middleware pipeline
-        $pipeline = new MiddlewarePipeline($finalHandler);
+        // ALWAYS wrap the final logic in the CallableHandlerAdapter before passing to pipeline
+        $finalPipelineHandler = new Http\CallableHandlerAdapter($finalHandlerCallable);
 
-        // Add resolved middleware instances to the pipeline
+        // Create middleware pipeline with the ADAPTER
+        $pipeline = new MiddlewarePipeline($finalPipelineHandler);
+
+        // Add middleware to pipeline ...
         foreach ($middlewareStack as $middleware) {
             try {
                 $instance = $middlewareManager->resolve($middleware);
+                if (!($instance instanceof \Psr\Http\Server\MiddlewareInterface)) {
+                    $this->container->make(LoggerInterface::class)->warning('Resolved middleware is not a PSR-15 MiddlewareInterface', [
+                        'middleware' => is_object($instance) ? get_class($instance) : $middleware,
+                    ]);
+                    continue;
+                }
                 $pipeline->add($instance);
             } catch (\Throwable $e) {
-                $this->container->make('logger')->error('Error resolving middleware', [
-                    'middleware' => is_string($middleware) ? $middleware : gettype($middleware),
+                $this->container->make(LoggerInterface::class)->error('Error resolving/adding middleware in dispatchWithMiddleware', [
+                    'middleware' => is_string($middleware) ? $middleware : (is_object($middleware) ? get_class($middleware) : 'Unknown type'),
                     'error' => $e->getMessage()
                 ]);
             }
@@ -530,5 +587,22 @@ class Application implements RequestHandlerInterface
         }
 
         return $this->responseEmitter;
+    }
+
+    /**
+     * Get the controller/handler resolver
+     * @throws BindingResolutionException
+     */
+    protected function getControllerResolver(): ControllerResolver
+    {
+        // Assuming ControllerResolver is registered or can be created here
+        if ($this->container->has(ControllerResolver::class)) {
+            return $this->container->make(ControllerResolver::class);
+        }
+        // Fallback creation (ensure dependencies like LoggerInterface, ControllerPool are available)
+        return new ControllerResolver(
+            $this->container->make(LoggerInterface::class),
+            $this->container->make(ControllerPool::class)
+        );
     }
 }

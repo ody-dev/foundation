@@ -94,8 +94,16 @@ class ControllerDispatcher
                     $request = $request->withAttribute($name, $value);
                 }
 
-                // Call the controller action with request, response, and any route parameters
-                return call_user_func([$controllerInstance, $action], $request, $response, $routeParams);
+                // Check if it's an invokable controller call
+                if ($action === '__invoke' && is_callable($controllerInstance)) {
+                    return call_user_func($controllerInstance, $request, $response, $routeParams); // <-- Invoke directly
+                } elseif ($action !== '__invoke' && method_exists($controllerInstance, $action)) {
+                    // Call the specific action method
+                    return call_user_func([$controllerInstance, $action], $request, $response, $routeParams);
+                } else {
+                    // Handle error: Method not found or controller not invokable
+                    throw new \RuntimeException("Action '{$action}' not found or controller is not invokable.");
+                }
             };
 
             // Get middleware for the controller and action
