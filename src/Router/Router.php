@@ -11,7 +11,7 @@ namespace Ody\Foundation\Router;
 
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
-use Ody\Middleware\MiddlewareManager;
+use Ody\Foundation\Middleware\MiddlewareManager;
 use Psr\Log\LoggerInterface;
 use function FastRoute\simpleDispatcher;
 
@@ -127,19 +127,13 @@ class Router
      */
     protected function addRoute(string $method, string $path, mixed $handler): Route
     {
-        // Normalize path
         $path = $this->normalizePath($path);
-
-        // Create Route object
         $route = new Route($method, $path, $handler, $this->middlewareManager);
-
-        // Store route definition
         $this->routes[] = [$method, $path, $handler];
 
         // Reset dispatcher so it will be rebuilt on next match
         $this->dispatcher = null;
 
-        // Log route registration
         $workerId = getmypid();
         $this->logger->debug("[Worker {$workerId}] Router: Registered {$method} route: {$path}");
 
@@ -185,31 +179,14 @@ class Router
                 ];
 
             case Dispatcher::FOUND:
-                $handlerIdentifier = $routeInfo[1]; // This is the raw handler (string or closure)
+                $handlerIdentifier = $routeInfo[1];
                 $routeParams = $routeInfo[2];
                 $this->logger->debug("Router: Route found for {$method} {$path}");
 
-                $controllerClass = null;
-                $action = null;
-                $isPsr15Handler = false;
                 if (is_string($handlerIdentifier)) {
-                    if (str_contains($handlerIdentifier, '@')) {
-                        list($controllerClass, $action) = explode('@', $handlerIdentifier, 2);
-                    } elseif (class_exists($handlerIdentifier)) {
-                        $interfaces = class_implements($handlerIdentifier); // Get interfaces
-
-                        // Check if it's a PSR-15 Request Handler
-                        if (isset($interfaces['Psr\Http\Server\RequestHandlerInterface'])) {
-                            $controllerClass = $handlerIdentifier;
-                            $isPsr15Handler = true;
-                        } // Check if it's an invokable controller (keep previous logic)
-                        elseif (method_exists($handlerIdentifier, '__invoke')) {
-                            $controllerClass = $handlerIdentifier;
-                            $action = '__invoke';
-                        } else {
-                            // Invalid string handler (neither Controller@action, invokable, nor PSR-15)
-                            $this->logger->warning("Router: Handler string '{$handlerIdentifier}' is not a valid controller, invokable, or PSR-15 handler.");
-                        }
+                    $interfaces = class_implements($handlerIdentifier);
+                    if (!isset($interfaces['Psr\Http\Server\RequestHandlerInterface'])) {
+                        $this->logger->warning("Router: Handler string '{$handlerIdentifier}' is not a valid PSR-15 handler.");
                     }
                 }
 
@@ -217,9 +194,7 @@ class Router
                     'status' => 'found',
                     'handler' => $handlerIdentifier,
                     'vars' => $routeParams,
-                    'controller' => $controllerClass,
-                    'action' => $action,
-                    'is_psr15' => $isPsr15Handler
+                    'is_psr15' => true
                 ];
         }
         $this->logger->error("Router: Dispatcher returned unexpected status: " . $routeInfo[0]);

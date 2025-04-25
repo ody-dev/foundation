@@ -10,8 +10,8 @@
 namespace Tests\Unit\Foundation;
 
 use Ody\Container\Container;
+use Ody\Foundation\Middleware\MiddlewareResolver;
 use Ody\Foundation\Router\Router;
-use Ody\Middleware\MiddlewareRegistry;
 use Tests\TestCase;
 
 class RouterTest extends TestCase
@@ -25,7 +25,7 @@ class RouterTest extends TestCase
     {
         parent::setUp();
         $this->container = new Container();
-        $middlewareRegistry = new MiddlewareRegistry($this->container);
+        $middlewareRegistry = new MiddlewareResolver($this->container);
         $this->router = new Router($this->container, $middlewareRegistry);
     }
 
